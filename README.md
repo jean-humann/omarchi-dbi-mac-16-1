@@ -47,6 +47,31 @@ chmod +x bin/mbp16-1
 
 If the **lid is black**: USB keyboard, Limine **e**, `module_blacklist=amdgpu`, **F10**, login, `setup`, reboot **without** that token, `setup` again.
 
+### What this install supports
+
+Stock Omarchy 4 on this 16,1 already has T2 audio, Broadcom firmware, `t2fanrd`, and in-tree Touch Bar. It does **not** mux the lid to Intel, pin USB-C, sleep, or speak to Touch ID. That is this toolbox.
+
+| Feature | Support | Thanks to |
+| --- | --- | --- |
+| Keep macOS (dual-boot) | Yes | this toolbox (`macos` hole + installer **Free space**) |
+| Intel lid (Apple Color LCD) | Yes | this toolbox (`setup` / `apply gpu` — gmux `force_igd`) |
+| USB-C DisplayPort | Yes | this toolbox (`apply display` — AMD 5500M; unplug before login) |
+| Sleep | Yes | this toolbox (`linux-t2-mbp161` s2idle). **Not** stock `linux-t2` |
+| Lid close | Yes | this toolbox — undocked sleeps, docked ignores |
+| Touch ID | Yes | this toolbox (`macos` export + `apply touchid`) — lock, sudo, pkexec |
+| Keyboard / trackpad | Yes | this toolbox (`apply input`) — Apple ISO French optional |
+| Touch Bar | Config 1 | Omarchy ISO (in-tree). This recipe **stays** USB config 1 |
+| Brightness keys | Yes | this toolbox — `gmux_backlight` (not Touch Bar backlight) |
+| Wi-Fi (BCM4364) | Yes | Omarchy ISO firmware + this toolbox `brcmfmac` WPA workaround |
+| Fans | Yes | Omarchy ISO `t2fanrd` + this toolbox linear **40–85 °C** |
+| Power / heat | Yes | this toolbox — AMD DPM **`low`** + `mbp16-1-powerd` |
+| Audio | Yes | Omarchy ISO (T2 audio) |
+| Bluetooth | Yes | Omarchy ISO (Broadcom firmware) |
+| Pointers | Yes | this toolbox — software cursors (AMD hardware cursor is a black square) |
+| ALS auto-brightness | No | unused on purpose |
+| Hybrid GPU / mux | No | Intel lid always; Omarchy Hybrid GPU menu is hidden |
+| Suspend on stock `linux-t2` | No | poisons the 5500M SMU (`-62`). Recovery kernel only |
+
 Do **not** publish keybags, catacomb archives, `T2_TOUCHID_HOST`, serials, or unredacted `t2-touchid-doctor` output.
 
 Later, after `omarchy update` (recovery `linux-t2` may move): `mbp16-1-limine-quiet`, then `mbp16-1 update kernel` if daily is behind.
@@ -83,6 +108,8 @@ USB-C DP is **wired to AMD**. Intel cannot light a USB-C monitor. Measure PCI an
 9. [Files](#9-files-this-setup-uses)
 10. [Leave out](#10-leave-out)
 11. [Sources](#11-sources)
+
+Feature list for a first-time reader: [What this install supports](#what-this-install-supports).
 
 ---
 

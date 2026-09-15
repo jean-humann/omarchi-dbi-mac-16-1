@@ -1,0 +1,47 @@
+#!/bin/bash
+# Disable the AMD mux phantom eDP. Never disable the Apple Color LCD (the lid).
+# Connector names flip when Hyprland starts with USB-C already plugged:
+#   lid-only start: Intel lid is eDP-2, AMD phantom is eDP-1
+#   cable-in start: Intel lid is often eDP-1, AMD phantom is eDP-2
+#
+# Hyprland Lua parser: use `hyprctl eval`, not `keyword`.
+set -euo pipefail
+
+apply() {
+  local monitors name
+  monitors=$(hyprctl monitors all -j 2>/dev/null) || return 0
+
+  while IFS= read -r name; do
+    [[ -n $name ]] || continue
+    hyprctl eval "hl.monitor({ output = \"$name\", disabled = true })" >/dev/null 2>&1 || true
+  done < <(jq -r '
+    .[]
+    | select(.name | test("^(eDP|LVDS|DSI)-"))
+    | select((.description // "") | contains("Color LCD") | not)
+    | .name
+  ' <<<"$monitors")
+}
+
+watch() {
+  local socket lock
+  socket="${XDG_RUNTIME_DIR}/hypr/${HYPRLAND_INSTANCE_SIGNATURE}/.socket2.sock"
+  lock="${XDG_RUNTIME_DIR}/mbp16-1-hypr-outputs.lock"
+  [[ -S $socket ]] || exit 0
+
+  exec 9>"$lock"
+  flock -n 9 || exit 0
+
+  apply
+  while read -r event; do
+    case "$event" in
+      monitoradded\>\>*|monitoraddedv2\>\>*|configreloaded\>\>*)
+        apply
+        ;;
+    esac
+  done < <(socat -U - "UNIX-CONNECT:$socket")
+}
+
+case "${1:-}" in
+  --watch) watch ;;
+  *) apply ;;
+esac

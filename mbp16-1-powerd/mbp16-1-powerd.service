@@ -1,0 +1,22 @@
+[Unit]
+Description=MacBookPro16,1 occupancy and skin power policy
+Documentation=file:///etc/mbp16-1-powerd.conf
+# Do not After=power-profiles-daemon: PPD itself After=multi-user.target, which
+# cycles with WantedBy=multi-user.target and systemd then drops this unit.
+After=t2fanrd.service
+Wants=power-profiles-daemon.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/mbp16-1-powerd --config /etc/mbp16-1-powerd.conf
+Restart=on-failure
+RestartSec=2
+Nice=10
+MemoryMax=16M
+RuntimeDirectory=mbp16-1-powerd
+RuntimeDirectoryMode=0755
+# Need sysfs writes for RAPL + EPP. Never touch AMD DPM in the program.
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

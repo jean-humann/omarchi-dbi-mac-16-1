@@ -1,0 +1,16 @@
+[Unit]
+Description=Re-arm lock fingerprint after MacBookPro16,1 s2idle
+# Start with sleep.target (ExecStart is a no-op). ExecStop runs on resume
+# after systemd-sleep has thawed user.slice. system-sleep hooks are frozen.
+Before=sleep.target
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/true
+ExecStop=/usr/lib/mbp16-1/lock-rearm
+TimeoutStopSec=20
+
+[Install]
+WantedBy=sleep.target

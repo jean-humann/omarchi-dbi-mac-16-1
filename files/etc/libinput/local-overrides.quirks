@@ -1,0 +1,10 @@
+# T2 USB keyboard is also tagged external on t2bce_vhci.
+# DWT only pairs an internal keyboard with an internal pad.
+# More specific than stock 50-system-apple.quirks (that name also matches the pad).
+[Apple T2 Internal Keyboard]
+MatchName=Apple Inc. Apple Internal Keyboard / Trackpad
+MatchUdevType=keyboard
+MatchBus=usb
+MatchVendor=0x05AC
+MatchProduct=0x0340
+AttrKeyboardIntegration=internal

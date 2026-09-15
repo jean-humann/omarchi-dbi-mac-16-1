@@ -1,0 +1,27 @@
+#!/bin/bash
+# After s2idle. systemd-sleep hooks run while user.slice is frozen — do not
+# talk to the lock or session fprintd clients from there.
+# This runs as ExecStop of mbp16-1-lock-rearm.service (sleep.target stop),
+# after thaw. Restart fprintd so a stuck VerifyFinger errors; Omarchy lock
+# PAM onError then retries. Do not unload t2_sep_transport. Do not start a
+# second transport. Do not restart the lock shell (that would drop the lock).
+
+systemctl try-restart fprintd.service >/dev/null 2>&1 || true
+sleep 0.4
+
+for dir in /run/user/*; do
+  [[ -d $dir ]] || continue
+  uid=${dir##*/}
+  [[ $uid =~ ^[0-9]+$ ]] || continue
+  ((uid >= 1000)) || continue
+  [[ -S $dir/bus ]] || continue
+  user=$(id -nu "$uid" 2>/dev/null) || continue
+  helper=/home/$user/.local/bin/mbp16-1-lock-rearm
+  [[ -x $helper ]] || continue
+  systemd-run --quiet --no-block --collect \
+    --uid="$uid" --gid="$(id -g "$uid")" \
+    --setenv=XDG_RUNTIME_DIR="$dir" \
+    --setenv=DBUS_SESSION_BUS_ADDRESS="unix:path=$dir/bus" \
+    "$helper" || true
+done
+exit 0

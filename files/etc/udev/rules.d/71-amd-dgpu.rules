@@ -1,0 +1,3 @@
+# Stable DRM alias for MacBookPro16,1 AMD 5500M (USB-C DP).
+# Name must not contain colons: Aquamarine splits AQ_DRM_DEVICES on ":".
+SUBSYSTEM=="drm", KERNEL=="card[0-9]*", KERNELS=="0000:03:00.0", SYMLINK+="dri/amd-dgpu"

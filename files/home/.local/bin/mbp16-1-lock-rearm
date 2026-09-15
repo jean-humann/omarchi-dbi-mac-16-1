@@ -1,0 +1,9 @@
+#!/bin/bash
+# Warm fprintd after resume so lock fingerprint PAM is not the first D-Bus
+# caller. Invoked as the session user from mbp16-1-lock-rearm.service ExecStop.
+# Do not unload t2_sep_transport. Do not start a second transport.
+# Do not call omarchy-shell lock lock: when the session is already locked that
+# IPC returns ok without beginLock, so fingerprint PAM is never reset.
+
+command -v fprintd-list >/dev/null || exit 0
+fprintd-list "${USER}" >/dev/null 2>&1 || true

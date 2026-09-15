@@ -1,0 +1,440 @@
+#!/usr/bin/env bash
+# MacBookPro16,1 Omarchy toolbox — from macOS prep through desktop, sleep, Touch ID.
+# Reuses Randy DPM (novuon/mbp2019-omarchy), t2-touchid-linux, and files/ in this pack.
+set -euo pipefail
+
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+# shellcheck source=../lib/common.sh
+source "$ROOT/lib/common.sh"
+# shellcheck source=../lib/deps.sh
+source "$ROOT/lib/deps.sh"
+# shellcheck source=../lib/kernel.sh
+source "$ROOT/lib/kernel.sh"
+# shellcheck source=../lib/situate.sh
+source "$ROOT/lib/situate.sh"
+# shellcheck source=../lib/doctor.sh
+source "$ROOT/lib/doctor.sh"
+# shellcheck source=../lib/apply.sh
+source "$ROOT/lib/apply.sh"
+# shellcheck source=../lib/pack.sh
+source "$ROOT/lib/pack.sh"
+# shellcheck source=../lib/macos.sh
+source "$ROOT/lib/macos.sh"
+
+usage() {
+  macos_banner
+  ui_command "help"
+  ui_meta "Omarchy toolbox for MacBookPro16,1 (A2141). Keep macOS."
+  section "Easy path" "One command on macOS, two on Linux. Commands check what they can; you type y on each remaining gate."
+  step 1 "mbp16-1 macos" "macOS — checks T2 / USB / Touch ID, then shrink, keybags + toolbox, ISO, flash"
+  step 2 "Option-boot orange EFI" "installer disk = Free space (keep macOS)"
+  step 3 "mbp16-1 setup" "Linux from KEYBAGS — deps + desktop + sleep kernel (asks keyboard + USB-C)"
+  step 4 "reboot onto linux-t2-mbp161" "unplugged; do not suspend on stock"
+  step 5 "mbp16-1 apply touchid" "refuses until that kernel / DPM / NCM are up; then catacomb from KEYBAGS"
+  hint "If the lid is black: Limine e, module_blacklist=amdgpu, F10, login, setup, reboot without that token, setup again."
+  hint "later: omarchy update  →  mbp16-1-limine-quiet  →  mbp16-1 update kernel"
+
+  section "Subcommands" "Same path, one piece. Full detail: README.md (Detailed guide)."
+  ui_kv "macos" "Easy path on macOS (checks + gates)"
+  ui_kv "setup" "Easy path on Linux (C+D)"
+  ui_kv "apply touchid" "Easy path Phase E — fails if sleep kernel / DPM / NCM missing"
+  ui_kv "doctor" "check this machine (pass / fail / note + next commands)"
+  ui_kv "macos guide" "human checklist"
+  ui_kv "macos sticks / shrink / …" "one Phase A piece"
+  ui_kv "apply desktop" "C+D files without the sleep kernel"
+  ui_kv "apply gpu / display / …" "one Linux piece"
+  ui_kv "apply kernel --build" "first sleep kernel only (45–90 min)"
+  ui_kv "update kernel" "rebase daily onto current linux-t2-arch"
+  ui_kv "deps" "runtimes only (setup/apply already call this)"
+  ui_kv "pack [DIR]" "shareable tree (--check, --force DIR)"
+
+  section "Flags" "May appear before the command. Prompts use /dev/tty. NO_COLOR=1 disables colour."
+  ui_kv "--yes / -y" "skip confirm waits (not machine checks); reuse saved answers"
+  ui_kv "--layout fr-mac|skip" "Apple ISO French vs trackpad-only (default: ask)"
+  ui_kv "--external yes|no" "USB-C monitor in Hyprland (default: ask)"
+  ui_kv "--external-desc 'Make Model'" "exact hyprctl description; implies --external yes"
+  ui_kv "--iso PATH" "existing Omarchy ISO (default: download pinned 4.0.3)"
+  ui_kv "--installer diskN" "USB whole disk ≥8 GB for the ISO — ALL DATA ERASED (macos)"
+  ui_kv "--private diskN" "USB whole disk for keybags + toolbox — never the installer (macos)"
+  ui_kv "--container diskNsM" "internal APFS store to shrink (usually disk0s2, not a USB disk)"
+  ui_kv "--free SIZE" "Omarchy hole to leave (default 80g, floor 32g)"
+  ui_kv "--keep SIZE" "new APFS container size instead of --free (e.g. 360g)"
+  ui_kv "--dry-run" "print actions, do not write"
+  ui_kv "--i-know" "skip the MacBookPro16,1 model check"
+
+  section "Do not"
+  hint "DPM auto, Omarchy Fingerprint, Hybrid GPU / supergfxctl"
+  hint "unload t2_sep_transport, yuters main / install.sh, full-disk wipe"
+  hint "Guide: README.md"
+}
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --dry-run) DRY_RUN=1; shift ;;
+    --i-know) FORCE_MODEL=1; shift ;;
+    --yes|-y) ASSUME_YES=1; shift ;;
+    --layout)
+      LAYOUT=${2:?}
+      shift 2
+      ;;
+    --layout=*)
+      LAYOUT=${1#--layout=}
+      shift
+      ;;
+    --external)
+      EXTERNAL=${2:?}
+      shift 2
+      ;;
+    --external=*)
+      EXTERNAL=${1#--external=}
+      shift
+      ;;
+    --external-desc)
+      EXTERNAL_DESC=${2:?}
+      EXTERNAL=yes
+      shift 2
+      ;;
+    --external-desc=*)
+      EXTERNAL_DESC=${1#--external-desc=}
+      EXTERNAL=yes
+      shift
+      ;;
+    --installer)
+      MACOS_INSTALLER=${2:?}
+      shift 2
+      ;;
+    --installer=*)
+      MACOS_INSTALLER=${1#--installer=}
+      shift
+      ;;
+    --private)
+      MACOS_PRIVATE=${2:?}
+      shift 2
+      ;;
+    --private=*)
+      MACOS_PRIVATE=${1#--private=}
+      shift
+      ;;
+    --iso)
+      MACOS_ISO=${2:?}
+      shift 2
+      ;;
+    --iso=*)
+      MACOS_ISO=${1#--iso=}
+      shift
+      ;;
+    --container)
+      MACOS_CONTAINER=${2:?}
+      shift 2
+      ;;
+    --container=*)
+      MACOS_CONTAINER=${1#--container=}
+      shift
+      ;;
+    --free)
+      MACOS_FREE=${2:?}
+      shift 2
+      ;;
+    --free=*)
+      MACOS_FREE=${1#--free=}
+      shift
+      ;;
+    --keep)
+      MACOS_KEEP=${2:?}
+      shift 2
+      ;;
+    --keep=*)
+      MACOS_KEEP=${1#--keep=}
+      shift
+      ;;
+    -h|--help) usage; ui_end; exit 0 ;;
+    --) shift; break ;;
+    -*) die "unknown flag $1" ;;
+    *) break ;;
+  esac
+done
+
+cmd=${1:-}
+shift || true
+
+case $cmd in
+  ""|-h|--help|help) usage; ui_end ;;
+  doctor|status)
+    macos_banner
+    ui_command "doctor"
+    rc=0
+    mbp16_1_doctor || rc=$?
+    ui_end
+    exit "$rc"
+    ;;
+  setup)
+    extra=()
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --layout)
+          LAYOUT=${2:?}
+          shift 2
+          ;;
+        --layout=*)
+          LAYOUT=${1#--layout=}
+          shift
+          ;;
+        --external)
+          EXTERNAL=${2:?}
+          shift 2
+          ;;
+        --external=*)
+          EXTERNAL=${1#--external=}
+          shift
+          ;;
+        --external-desc)
+          EXTERNAL_DESC=${2:?}
+          EXTERNAL=yes
+          shift 2
+          ;;
+        --external-desc=*)
+          EXTERNAL_DESC=${1#--external-desc=}
+          EXTERNAL=yes
+          shift
+          ;;
+        --yes|-y) ASSUME_YES=1; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        --i-know) FORCE_MODEL=1; shift ;;
+        *) extra+=("$1"); shift ;;
+      esac
+    done
+    ((${#extra[@]})) && die "setup takes flags only" "see: mbp16-1 help"
+    case $LAYOUT in ask|fr-mac|skip) ;; *) die "unknown --layout $LAYOUT" "use fr-mac, skip, or omit to ask" ;; esac
+    case $EXTERNAL in ask|yes|no) ;; *) die "unknown --external $EXTERNAL" "use yes, no, or omit to ask" ;; esac
+    macos_banner
+    ui_command "setup"
+    mbp16_1_setup
+    ui_end
+    ;;
+  macos)
+    sub=run
+    if [[ $# -gt 0 && $1 != --* ]]; then
+      case $1 in
+        guide|sticks|shrink|export|run|flash) sub=$1; shift ;;
+      esac
+    fi
+    macos_args=()
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --installer)
+          MACOS_INSTALLER=${2:?}
+          shift 2
+          ;;
+        --installer=*)
+          MACOS_INSTALLER=${1#--installer=}
+          shift
+          ;;
+        --private)
+          MACOS_PRIVATE=${2:?}
+          shift 2
+          ;;
+        --private=*)
+          MACOS_PRIVATE=${1#--private=}
+          shift
+          ;;
+        --iso)
+          MACOS_ISO=${2:?}
+          shift 2
+          ;;
+        --iso=*)
+          MACOS_ISO=${1#--iso=}
+          shift
+          ;;
+        --container)
+          MACOS_CONTAINER=${2:?}
+          shift 2
+          ;;
+        --container=*)
+          MACOS_CONTAINER=${1#--container=}
+          shift
+          ;;
+        --free)
+          MACOS_FREE=${2:?}
+          shift 2
+          ;;
+        --free=*)
+          MACOS_FREE=${1#--free=}
+          shift
+          ;;
+        --keep)
+          MACOS_KEEP=${2:?}
+          shift 2
+          ;;
+        --keep=*)
+          MACOS_KEEP=${1#--keep=}
+          shift
+          ;;
+        --yes|-y) ASSUME_YES=1; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        --i-know) FORCE_MODEL=1; shift ;;
+        *) macos_args+=("$1"); shift ;;
+      esac
+    done
+    case $sub in
+      run)
+        macos_banner
+        ui_command "macos"
+        macos_run
+        ui_end
+        ;;
+      guide)
+        macos_banner
+        ui_command "macos guide"
+        macos_guide
+        ui_end
+        ;;
+      export)
+        macos_banner
+        ui_command "macos export"
+        if ((${#macos_args[@]})); then
+          macos_export "${macos_args[0]}"
+        else
+          macos_export
+        fi
+        ui_end
+        ;;
+      shrink)
+        ui_command "macos shrink"
+        if ((${#macos_args[@]})); then
+          macos_shrink "${macos_args[0]}"
+        else
+          macos_shrink
+        fi
+        ui_end
+        ;;
+      sticks)
+        ui_command "macos sticks"
+        rc=0
+        macos_sticks || rc=$?
+        ui_end
+        exit "$rc"
+        ;;
+      flash)
+        macos_banner
+        ui_command "macos flash"
+        macos_map_sticks
+        macos_iso
+        macos_flash "${MACOS_ISO_PATH:-$(_macos_iso_dest)}"
+        ui_end
+        ;;
+      *) die "unknown macos subcommand $sub" "run | guide | sticks | shrink | export | flash" ;;
+    esac
+    ;;
+  apply)
+    phase=${1:-}
+    shift || true
+    [[ -n $phase ]] || die "apply needs a phase" "see: mbp16-1 help"
+    extra=()
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --layout)
+          LAYOUT=${2:?}
+          shift 2
+          ;;
+        --layout=*)
+          LAYOUT=${1#--layout=}
+          shift
+          ;;
+        --external)
+          EXTERNAL=${2:?}
+          shift 2
+          ;;
+        --external=*)
+          EXTERNAL=${1#--external=}
+          shift
+          ;;
+        --external-desc)
+          EXTERNAL_DESC=${2:?}
+          EXTERNAL=yes
+          shift 2
+          ;;
+        --external-desc=*)
+          EXTERNAL_DESC=${1#--external-desc=}
+          EXTERNAL=yes
+          shift
+          ;;
+        --yes|-y) ASSUME_YES=1; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        --i-know) FORCE_MODEL=1; shift ;;
+        *) extra+=("$1"); shift ;;
+      esac
+    done
+    case $LAYOUT in ask|fr-mac|skip) ;; *) die "unknown --layout $LAYOUT" "use fr-mac, skip, or omit to ask" ;; esac
+    case $EXTERNAL in ask|yes|no) ;; *) die "unknown --external $EXTERNAL" "use yes, no, or omit to ask" ;; esac
+    macos_banner
+    ui_command "apply ${phase}${extra[*]:+ ${extra[*]}}"
+    case $phase in
+      gpu) apply_gpu ;;
+      display) apply_display ;;
+      input) apply_input ;;
+      fans) apply_fans ;;
+      wifi) apply_wifi ;;
+      power) apply_power ;;
+      sleep) apply_sleep ;;
+      desktop) apply_desktop ;;
+      kernel) apply_kernel "${extra[@]+"${extra[@]}"}" ;;
+      touchid) apply_touchid ;;
+      *) die "unknown phase $phase" "see: mbp16-1 help" ;;
+    esac
+    ui_end
+    ;;
+  update)
+    what=${1:-kernel}
+    shift || true
+    extra=()
+    if [[ $what == --* ]]; then
+      extra+=("$what")
+      what=kernel
+    fi
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --yes|-y) ASSUME_YES=1; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        --i-know) FORCE_MODEL=1; shift ;;
+        --check|--force|--build) extra+=("$1"); shift ;;
+        *) extra+=("$1"); shift ;;
+      esac
+    done
+    ui_command "update ${what}${extra[*]:+ ${extra[*]}}"
+    mbp16_1_update "$what" "${extra[@]+"${extra[@]}"}"
+    ui_end
+    ;;
+  deps)
+    extra=()
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --yes|-y) ASSUME_YES=1; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        --i-know) FORCE_MODEL=1; shift ;;
+        --check) extra+=("$1"); shift ;;
+        *) extra+=("$1"); shift ;;
+      esac
+    done
+    ui_command "deps${extra[*]:+ ${extra[*]}}"
+    mbp16_1_deps "${extra[@]+"${extra[@]}"}"
+    ui_end
+    ;;
+  pack)
+    extra=()
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --dry-run) DRY_RUN=1; shift ;;
+        --force) extra+=("$1"); shift ;;
+        --check) extra+=("$1"); shift ;;
+        -*) die "unknown pack flag $1" ;;
+        *) extra+=("$1"); shift ;;
+      esac
+    done
+    ui_command "pack${extra[*]:+ ${extra[*]}}"
+    mbp16_1_pack "${extra[@]+"${extra[@]}"}"
+    ui_end
+    ;;
+  *)
+    die "unknown command $cmd" "try: mbp16-1 macos  ·  mbp16-1 setup  ·  mbp16-1 help"
+    ;;
+esac

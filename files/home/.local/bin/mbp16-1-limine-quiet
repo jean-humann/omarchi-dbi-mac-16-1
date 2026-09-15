@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Skip the Limine menu unless a key is pressed (quiet + 1s timeout).
+# Does not remove linux-t2. Does not touch KERNEL_CMDLINE.
+# `omarchy refresh limine` copies stock /usr/share/omarchy/default/limine/limine.conf
+# and will drop this; re-run this script after that.
+set -euo pipefail
+
+conf=/boot/limine.conf
+[[ $(id -u) -eq 0 ]] || exec pkexec "$0" "$@"
+
+[[ -f $conf ]] || { echo "missing $conf" >&2; exit 1; }
+
+python3 - "$conf" <<'PY'
+from datetime import datetime, timezone
+from pathlib import Path
+import sys
+
+conf = Path(sys.argv[1])
+stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+backup = conf.with_name(f"limine.conf.bak.mbp16-1-quiet-{stamp}")
+text = conf.read_text()
+lines = text.splitlines()
+out = []
+have_quiet = False
+have_timeout = False
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith("timeout:"):
+        out.append("timeout: 1")
+        have_timeout = True
+        continue
+    if stripped.startswith("quiet:"):
+        out.append("quiet: yes")
+        have_quiet = True
+        continue
+    out.append(line)
+
+if not have_timeout:
+    sys.exit("no timeout: line in limine.conf")
+
+if not have_quiet:
+    final = []
+    for line in out:
+        final.append(line)
+        if line.startswith("timeout:"):
+            final.append("quiet: yes")
+    out = final
+
+new = "\n".join(out) + "\n"
+if new == text:
+    print(f"{conf}: already quiet timeout: 1")
+    sys.exit(0)
+
+backup.write_text(text)
+conf.write_text(new)
+print(f"wrote {conf} (backup {backup.name})")
+PY

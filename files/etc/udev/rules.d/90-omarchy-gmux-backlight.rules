@@ -1,0 +1,1 @@
+SUBSYSTEM=="backlight", KERNEL=="gmux_backlight", TAG+="uaccess"

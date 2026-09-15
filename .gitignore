@@ -1,0 +1,27 @@
+# Private working-tree files — never commit even if copied here by mistake
+CONTINUE.md
+AGENTS.md
+omarchy-mbp16-1-guide.md
+MacBookPro16-1-Omarchy.md
+incidents.md
+yuters-issue-e77b03f.md
+logs/
+.cursor/
+dist/
+
+# Build / junk
+mbp16-1-powerd/target/
+**/__pycache__/
+*.py[cod]
+._*
+.DS_Store
+
+# Secrets
+*.kb
+*keybags*
+*catacomb*
+.env
+.env.*
+*.pem
+id_rsa*
+id_ed25519*

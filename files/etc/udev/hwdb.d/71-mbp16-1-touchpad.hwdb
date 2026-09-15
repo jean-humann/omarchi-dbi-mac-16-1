@@ -1,0 +1,5 @@
+# MacBookPro16,1 T2 pad is USB 05ac:0340 on t2bce_vhci (removable=unknown).
+# udev otherwise tags it external, so libinput skips disable-while-typing.
+# Match vid/pid only: the device name contains "/" and is easy to miss.
+touchpad:usb:v05acp0340:*
+ ID_INPUT_TOUCHPAD_INTEGRATION=internal

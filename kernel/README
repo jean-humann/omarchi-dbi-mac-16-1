@@ -1,0 +1,7 @@
+linux-t2-mbp161 packaging: Watanare linux-t2-arch + yuters e77b03f 0001–0005.
+
+First install: `mbp16-1 apply kernel --build` (the snapshot vendored in this directory). That snapshot may be older than recovery `linux-t2` already on the box — expected; `update kernel` rebases after the first boot onto mbp161.
+
+When stock linux-t2 moves: `omarchy update` (not `pacman -Syu`) upgrades recovery only, then `mbp16-1-limine-quiet` (Limine rewrites `/boot/limine.conf`). Daily does not follow until `mbp16-1 update kernel`, which rebases pkgver/pkgrel/T2_PATCH_HASH/checksums/config.x86_64 from https://github.com/NoaHimesaka1873/linux-t2-arch, keeps the five yuters patches, leaves CONFIG_RUST off, and does not provide/replace linux. After makepkg it re-runs `mbp16-1-limine-quiet`.
+
+Do not use yuters main or install.sh. If 0001–0005 reject on a new t2linux base, the patches need a refresh — stop.

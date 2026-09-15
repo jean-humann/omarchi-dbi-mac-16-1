@@ -1,0 +1,7 @@
+{
+  // MacBookPro16,1: Intel + AMD is Apple gmux, not ASUS supergfxctl.
+  "trigger.hardware.hybrid-gpu": {
+    "when": "false",
+    "description": "Hidden on this T2 16,1. Do not run omarchy toggle hybrid gpu."
+  }
+}

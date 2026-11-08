@@ -65,6 +65,9 @@ KERNEL_STOCK=linux-t2
 KERNEL_UPSTREAM_REPO="${MBP16_1_T2_ARCH_REPO:-https://github.com/NoaHimesaka1873/linux-t2-arch.git}"
 KERNEL_UPSTREAM_BRANCH="${MBP16_1_T2_ARCH_BRANCH:-main}"
 KERNEL_YUTERS_REF=e77b03f
+# Local patches vendored in kernel/: yuters first, then extra-*.patch, both in
+# PKGBUILD source=() order (kernel/PATCHES.md says where each one comes from).
+KERNEL_PATCHES_DESC="yuters ${KERNEL_YUTERS_REF} 0001–0005 + extra-*.patch (KaiT2en, klizas)"
 # Limine default order. limine-entry-tool reads /usr/share/limine-entry-tool.d,
 # /etc/limine-entry-tool.conf, /etc/limine-entry-tool.d/*.conf, then
 # /etc/default/limine — the LAST BOOT_ORDER wins. The 4.5 ISO writes

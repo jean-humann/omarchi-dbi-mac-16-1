@@ -18,6 +18,12 @@ kernel_copy_packaging() {
   fi
   mkdir -p "$dest"
   cp -a "$KERNEL_DIR/PKGBUILD" "$KERNEL_DIR/config.x86_64" "$KERNEL_DIR"/yuters-000*.patch "$dest/"
+  # prepare() applies only what PKGBUILD source=() lists, so a stale patch
+  # left in $dest from an older copy is ignored.
+  local extra=("$KERNEL_DIR"/extra-*.patch)
+  if [[ -e ${extra[0]} ]]; then
+    cp -a "${extra[@]}" "$dest/"
+  fi
   log "kernel packaging copied to $dest" "build dir for makepkg"
 }
 
@@ -78,7 +84,7 @@ kernel_makepkg_install() {
   expect "makepkg ${KERNEL_PKGBASE}" \
     "Typically 45–90 minutes on this 8-core 16,1 (download + compile) — same length on a rebase as on the first install." \
     "Stay plugged in. Fans will ramp. Do not suspend mid-build." \
-    "yuters ${KERNEL_YUTERS_REF} 0001–0005 apply after t2linux. If a patch rejects, stop — refresh those five (not yuters main)." \
+    "${KERNEL_PATCHES_DESC} apply after t2linux. If one rejects, stop — refresh that patch (not yuters main)." \
     "Then mkinitcpio + limine-update (1–3 min), then mbp16-1-limine-quiet (timeout: 1, quiet: yes)." \
     "Then reboot unplugged onto ${KERNEL_PKGBASE}."
   if ((DRY_RUN)); then
@@ -91,8 +97,118 @@ kernel_makepkg_install() {
   fi
   if ! (cd "$dest" && makepkg -si "${extra[@]+"${extra[@]}"}"); then
     die "makepkg failed" \
-      "If a yuters-000*.patch rejected, linux-t2 moved enough that ${KERNEL_YUTERS_REF} needs a refresh. Do not use yuters main / Falcon."
+      "If a yuters-000*.patch or extra-*.patch rejected, the t2linux base moved enough that it needs a refresh (kernel/PATCHES.md). Do not use yuters main / Falcon."
   fi
+  kernel_write_boot_order
+  rebuild_boot
+  confirm_ready "Reboot onto ${KERNEL_PKGBASE}" \
+    "Unplug USB-C. Pick ${KERNEL_PKGBASE} (Limine default after this install)." \
+    "Do not suspend on stock ${KERNEL_STOCK}. Two lid-only s2idle, then one with USB-C if you use it."
+}
+
+# Prebuilt packages from the CI draft release (.github/workflows/kernel-build.yml).
+# kernel/prebuilt.sha256 + kernel/prebuilt.inputs are committed and are the
+# only trust anchor: both packages must match the first byte for byte, and
+# kernel/ must still be the tree CI built (the second). The SHA256SUMS and
+# INPUTS shipped next to them in the release are never read.
+KERNEL_PREBUILT_SUMS="$KERNEL_DIR/prebuilt.sha256"
+KERNEL_PREBUILT_INPUTS="$KERNEL_DIR/prebuilt.inputs"
+
+# One sha256 over every kernel/ file makepkg reads (not README, *.md,
+# prebuilt*, dotfiles). .github/scripts/build-kernel.sh runs the same
+# pipeline; GNU sha256sum and macOS shasum give the same digest. bash 3.2 safe.
+kernel_inputs_digest() {
+  local sha=(sha256sum)
+  command -v sha256sum >/dev/null 2>&1 || sha=(shasum -a 256)
+  (cd "$KERNEL_DIR" &&
+    find . -maxdepth 1 -type f ! -name README ! -name '*.md' ! -name 'prebuilt*' ! -name '.*' -print0 |
+    LC_ALL=C sort -z | xargs -0 "${sha[@]}" | "${sha[@]}" | awk '{ print $1 }')
+}
+
+kernel_prebuilt_dir() { printf '%s\n' "${1:-$KERNEL_DIR/prebuilt}"; }
+
+# stdout: kernel then headers package path for the toolbox packaging version.
+kernel_prebuilt_files() {
+  local dir=$1 pack
+  pack=$(kernel_packaging_ver)
+  [[ -n $pack ]] || return 1
+  printf '%s\n' "$dir/${KERNEL_PKGBASE}-${pack}-x86_64.pkg.tar.zst" \
+    "$dir/${KERNEL_PKGBASE}-headers-${pack}-x86_64.pkg.tar.zst"
+}
+
+# warn unless the caller's local $quiet is set (bash dynamic scope).
+_kernel_prebuilt_warn() { [[ -n ${quiet:-} ]] || warn "$@"; }
+
+# 0 when DIR holds both packages and they match kernel/prebuilt.sha256.
+# $2=--quiet prints nothing (setup probes with it).
+kernel_prebuilt_verify() {
+  local dir=$1 quiet=${2:-} f name want got pkgs=()
+  mapfile -t pkgs < <(kernel_prebuilt_files "$dir")
+  if ((${#pkgs[@]} != 2)); then
+    _kernel_prebuilt_warn "toolbox PKGBUILD unreadable" "$KERNEL_DIR/PKGBUILD"
+    return 1
+  fi
+  if [[ ! -f $KERNEL_PREBUILT_SUMS ]]; then
+    _kernel_prebuilt_warn "no kernel/prebuilt.sha256" "nothing to check prebuilt packages against"
+    return 1
+  fi
+  if [[ ! -f $KERNEL_PREBUILT_INPUTS ]]; then
+    _kernel_prebuilt_warn "no kernel/prebuilt.inputs" "cannot tell which kernel/ tree CI built"
+    return 1
+  fi
+  if [[ $(kernel_inputs_digest) != "$(awk 'NF { print $1; exit }' "$KERNEL_PREBUILT_INPUTS")" ]]; then
+    _kernel_prebuilt_warn "kernel/ changed since the CI build" \
+      "those packages are another tree; push to rerun CI, or: mbp16-1 apply kernel --build"
+    return 1
+  fi
+  for f in "${pkgs[@]}"; do
+    name=${f##*/}
+    if [[ ! -f $f ]]; then
+      _kernel_prebuilt_warn "missing $name" "in $dir"
+      return 1
+    fi
+    want=$(awk -v n="$name" '$2 == n || $2 == "*" n { print $1; exit }' "$KERNEL_PREBUILT_SUMS")
+    if [[ -z $want ]]; then
+      _kernel_prebuilt_warn "$name is not in kernel/prebuilt.sha256" "those hashes are for another build"
+      return 1
+    fi
+    got=$(sha256sum "$f" | awk '{ print $1 }')
+    if [[ $got != "$want" ]]; then
+      _kernel_prebuilt_warn "sha256 mismatch: $name" "download it again from the draft release; do not install it"
+      return 1
+    fi
+  done
+  return 0
+}
+
+# The first-install command: --pkg when kernel/prebuilt/ verifies, else --build.
+kernel_install_cmd() {
+  if kernel_prebuilt_verify "$KERNEL_DIR/prebuilt" --quiet; then
+    echo "mbp16-1 apply kernel --pkg"
+  else
+    echo "mbp16-1 apply kernel --build"
+  fi
+}
+
+# Install the prebuilt packages instead of makepkg. $1 = directory (default kernel/prebuilt).
+kernel_pkg_install() {
+  local dir pkgs=() yes=()
+  dir=$(kernel_prebuilt_dir "${1:-}")
+  mapfile -t pkgs < <(kernel_prebuilt_files "$dir")
+  expect "Install prebuilt ${KERNEL_PKGBASE} $(kernel_packaging_ver)" \
+    "From $dir: the CI packages, checked against kernel/prebuilt.sha256 and .inputs. No compile." \
+    "Then mkinitcpio + limine-update (1–3 min), then mbp16-1-limine-quiet (timeout: 1, quiet: yes)." \
+    "Then reboot unplugged onto ${KERNEL_PKGBASE}."
+  if ! kernel_prebuilt_verify "$dir"; then
+    die "prebuilt packages not usable" "fix the file above, or compile: mbp16-1 apply kernel --build"
+  fi
+  ok "sha256 matches kernel/prebuilt.sha256" "${pkgs[*]##*/}"
+  if ((DRY_RUN)); then
+    log "dry-run: pacman -U ${pkgs[*]##*/}, boot order (drop-in + /etc/default/limine), limine-update"
+    return 0
+  fi
+  ((ASSUME_YES)) && yes=(--noconfirm)
+  run as_root pacman -U --needed "${yes[@]+"${yes[@]}"}" "${pkgs[@]}"
   kernel_write_boot_order
   rebuild_boot
   confirm_ready "Reboot onto ${KERNEL_PKGBASE}" \
@@ -221,7 +337,7 @@ kernel_report_versions() {
       kr=1
     fi
     if [[ -z $daily ]]; then
-      fail "${KERNEL_PKGBASE} not installed" "mbp16-1 apply kernel --build"
+      fail "${KERNEL_PKGBASE} not installed" "$(kernel_install_cmd)"
       kr=1
     fi
     if [[ -z $stock ]]; then
@@ -259,7 +375,7 @@ kernel_report_versions() {
   if ((behind)); then
     ui_next "mbp16-1 update kernel"
   elif [[ -z $daily ]]; then
-    ui_next "mbp16-1 apply kernel --build"
+    ui_next "$(kernel_install_cmd)"
   fi
   if [[ $running != "$KERNEL_PKGBASE" ]]; then
     ui_next "reboot unplugged onto ${KERNEL_PKGBASE}"
@@ -284,14 +400,15 @@ mbp16_1_update_kernel() {
   if ((check)); then
     expect "${KERNEL_PKGBASE} — report only" \
       "Fetches linux-t2-arch (${KERNEL_UPSTREAM_BRANCH}) into the cache. Does not write kernel/, does not compile." \
-      "Stock ${KERNEL_STOCK} is recovery. Daily is ${KERNEL_PKGBASE} (same tree + yuters ${KERNEL_YUTERS_REF} 0001–0005)." \
+      "Stock ${KERNEL_STOCK} is recovery. Daily is ${KERNEL_PKGBASE} (same tree + ${KERNEL_PATCHES_DESC})." \
       "If a rebuild is due, next is: mbp16-1 update kernel"
     section "Installed" "Local pacman + toolbox PKGBUILD (same rows as doctor Kernel)."
     kernel_report_versions || true
   else
     expect "${KERNEL_PKGBASE} lifecycle" \
-      "Stock ${KERNEL_STOCK} is recovery. Daily is ${KERNEL_PKGBASE} (linux-t2-arch + yuters ${KERNEL_YUTERS_REF} 0001–0005)." \
+      "Stock ${KERNEL_STOCK} is recovery. Daily is ${KERNEL_PKGBASE} (linux-t2-arch + ${KERNEL_PATCHES_DESC})." \
       "Fetches upstream. Rebases and compiles only if daily or toolbox packaging is behind — or if you passed --force." \
+      "Never rebases kernel/ onto an older linux-t2-arch: packaging bumped past upstream is built as vendored." \
       "Does not provide/replace linux. CONFIG_RUST stays off. Do not run yuters install.sh or main."
     ensure_core
     ensure_kernel_build_tools
@@ -308,7 +425,7 @@ mbp16_1_update_kernel() {
   fi
   kernel_fetch_upstream
 
-  local pack up daily stock st=0 files_stale=0 need_build=0
+  local pack up daily stock st=0 files_stale=0 need_build=0 ahead=0
   pack=$(kernel_packaging_ver)
   up=$(kernel_upstream_nv) || true
   daily=$(kernel_daily_ver)
@@ -317,28 +434,43 @@ mbp16_1_update_kernel() {
   [[ -n $pack ]] && ok "toolbox packaging ${pack}"
   [[ -n $daily ]] && ok "installed ${KERNEL_PKGBASE} ${daily}"
   [[ -n $stock ]] && ok "installed ${KERNEL_STOCK} ${stock}"
+  # kernel/ can be bumped by hand past linux-t2-arch (7.2.15 + e167207 while
+  # upstream sits on 7.2.14 with 7.3 patches). Never rebase onto older.
+  if kernel_ver_gt "$pack" "$up"; then
+    ahead=1
+    ok "toolbox packaging is ahead of linux-t2-arch" "${pack}  >  ${up}  — kept as vendored, no rebase"
+  fi
   kernel_check_upstream_patches
 
   if ((check)); then
-    if ((KERNEL_UPSTREAM_BROKEN)); then
+    if ((!ahead && KERNEL_UPSTREAM_BROKEN)); then
       info "no rebuild until upstream is consistent" "installed ${daily:-none}; packaging ${pack:-?}"
       return 0
     fi
-    kernel_sync_check || st=$?
-    if ((st != 0 && st != 2)); then
-      die "kernel sync check failed" "see lib/kernel_sync.py"
-    fi
-    if ((st == 0)); then
-      files_stale=1
+    if ((!ahead)); then
+      kernel_sync_check || st=$?
+      if ((st == 3)); then
+        ahead=1
+      elif ((st != 0 && st != 2)); then
+        die "kernel sync check failed" "see lib/kernel_sync.py"
+      elif ((st == 0)); then
+        files_stale=1
+      fi
     fi
     if ((force)) || [[ -z $daily ]]; then
       need_build=1
+    elif ((ahead)); then
+      if kernel_ver_gt "$pack" "$daily"; then
+        need_build=1
+      fi
     elif [[ -n $up && -n $daily ]] && kernel_ver_gt "$up" "$daily"; then
       need_build=1
     elif ((files_stale)); then
       need_build=1
     fi
-    if ((files_stale)); then
+    if ((ahead)); then
+      ok "packaging stays on the vendored tree" "$pack"
+    elif ((files_stale)); then
       info "packaging would rebase" "${pack}  ->  ${up}  (pkgver, T2_PATCH_HASH, checksums, config.x86_64)"
     else
       ok "packaging already matches linux-t2-arch" "$pack"
@@ -346,8 +478,14 @@ mbp16_1_update_kernel() {
     if ((need_build)); then
       info "a rebuild is due"
       section "Next" "This --check did not compile."
-      hint "mbp16-1 update kernel" "rebase + makepkg, typically 45–90 min, plugged in"
+      if ((ahead)); then
+        hint "mbp16-1 update kernel" "makepkg the vendored ${pack}, typically 45–90 min, plugged in"
+      else
+        hint "mbp16-1 update kernel" "rebase + makepkg, typically 45–90 min, plugged in"
+      fi
       hint "reboot unplugged onto ${KERNEL_PKGBASE}" "do not suspend on stock ${KERNEL_STOCK}"
+    elif ((ahead)); then
+      ok "daily package is current relative to toolbox packaging" "${daily:-missing}  vs  ${pack}"
     else
       ok "daily package is current relative to linux-t2-arch" "${daily:-missing}  vs  ${up}"
     fi
@@ -356,6 +494,10 @@ mbp16_1_update_kernel() {
 
   if ((force)) || [[ -z $daily ]]; then
     need_build=1
+  elif ((ahead)); then
+    if kernel_ver_gt "$pack" "$daily"; then
+      need_build=1
+    fi
   elif [[ -n $up && -n $daily ]] && kernel_ver_gt "$up" "$daily"; then
     need_build=1
   elif [[ -n $up && -n $pack && $up != "$pack" ]]; then
@@ -363,31 +505,46 @@ mbp16_1_update_kernel() {
   fi
 
   if ((need_build == 0)); then
-    ok "already current" "${KERNEL_PKGBASE} ${daily} matches linux-t2-arch ${up}"
+    if ((ahead)); then
+      ok "already current" "${KERNEL_PKGBASE} ${daily} matches toolbox packaging ${pack} (ahead of linux-t2-arch ${up})"
+    else
+      ok "already current" "${KERNEL_PKGBASE} ${daily} matches linux-t2-arch ${up}"
+    fi
     hint "rebuild anyway: mbp16-1 update kernel --force"
     return 0
   fi
-  if ((KERNEL_UPSTREAM_BROKEN)); then
+  if ((!ahead && KERNEL_UPSTREAM_BROKEN)); then
     die "not rebasing onto linux-t2-arch ${up}" \
       "its T2_PATCH_HASH targets another kernel series; kernel/ untouched, ${KERNEL_PKGBASE} ${daily:-?} stays default"
   fi
 
-  expect "Rebuild ${KERNEL_PKGBASE}  ${pack:-?}  →  ${up}" \
-    "1. Rebase toolbox kernel/ — pkgver, T2_PATCH_HASH, checksums, config.x86_64. Keep yuters 0001–0005, pkgbase, CONFIG_RUST off." \
-    "2. Copy that packaging to the build dir: $dest" \
-    "3. makepkg -si — typically 45–90 min. If a yuters patch rejects, stop (not yuters main)." \
-    "4. mkinitcpio + limine-update (1–3 min), then mbp16-1-limine-quiet." \
-    "5. Reboot unplugged onto ${KERNEL_PKGBASE}. Two lid-only s2idle, then one with USB-C if you use it."
-
-  section "Rebase packaging" "Writes $KERNEL_DIR. Does not touch yuters-000*.patch files."
-  st=0
-  kernel_sync_packaging || st=$?
-  if ((st == 2)); then
-    info "sync made no file changes" "versions already matched on disk"
-  elif ((st != 0)); then
-    die "kernel sync failed" "see lib/kernel_sync.py"
+  if ((ahead)); then
+    expect "Rebuild ${KERNEL_PKGBASE}  ${pack}  (vendored; linux-t2-arch ${up:-?} is older)" \
+      "1. Keep toolbox kernel/ as is — no rebase onto an older kernel." \
+      "2. Copy that packaging to the build dir: $dest" \
+      "3. makepkg -si — typically 45–90 min. If a patch rejects, stop (not yuters main)." \
+      "4. mkinitcpio + limine-update (1–3 min), then mbp16-1-limine-quiet." \
+      "5. Reboot unplugged onto ${KERNEL_PKGBASE}. Two lid-only s2idle, then one with USB-C if you use it."
   else
-    ok "packaging rebased onto linux-t2-arch ${up}"
+    expect "Rebuild ${KERNEL_PKGBASE}  ${pack:-?}  →  ${up}" \
+      "1. Rebase toolbox kernel/ — pkgver, T2_PATCH_HASH, checksums, config.x86_64. Keep ${KERNEL_PATCHES_DESC}, pkgbase, CONFIG_RUST off." \
+      "2. Copy that packaging to the build dir: $dest" \
+      "3. makepkg -si — typically 45–90 min. If a patch rejects, stop (not yuters main)." \
+      "4. mkinitcpio + limine-update (1–3 min), then mbp16-1-limine-quiet." \
+      "5. Reboot unplugged onto ${KERNEL_PKGBASE}. Two lid-only s2idle, then one with USB-C if you use it."
+
+    section "Rebase packaging" "Writes $KERNEL_DIR. Does not touch yuters-000*.patch or extra-*.patch files."
+    st=0
+    kernel_sync_packaging || st=$?
+    if ((st == 3)); then
+      info "packaging is newer than linux-t2-arch ${up}" "kept as vendored: ${pack}"
+    elif ((st == 2)); then
+      info "sync made no file changes" "versions already matched on disk"
+    elif ((st != 0)); then
+      die "kernel sync failed" "see lib/kernel_sync.py"
+    else
+      ok "packaging rebased onto linux-t2-arch ${up}"
+    fi
   fi
 
   kernel_copy_packaging

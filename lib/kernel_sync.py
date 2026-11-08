@@ -2,8 +2,15 @@
 """Rebase linux-t2-mbp161 packaging onto a linux-t2-arch tree.
 
 Copies pkgver/pkgrel, T2_PATCH_HASH, kernel/t2linux checksums, and
-config.x86_64 from upstream. Keeps pkgbase, yuters 0001–0005, CONFIG_RUST
-off, no provides=(linux), no htmldocs.
+config.x86_64 from upstream. Keeps pkgbase, the local patches (yuters
+0001–0005, then extra-*.patch), CONFIG_RUST off, no provides=(linux),
+no htmldocs.
+
+Never moves packaging to an older kernel: when upstream's pkgver-pkgrel is
+older than ours (kernel/ was bumped by hand past linux-t2-arch), nothing is
+written and the exit code is 3.
+
+Exit codes: 0 changed (or would change), 2 unchanged, 3 ours is newer.
 """
 from __future__ import annotations
 
@@ -19,6 +26,23 @@ ARRAY_RE = re.compile(
 )
 ITEM_RE = re.compile(r"'[^']*'|\"[^\"]*\"|SKIP")
 YUTERS_COUNT = 5
+EXIT_UNCHANGED = 2
+EXIT_AHEAD = 3
+
+
+def local_patches(dest: Path) -> list[Path]:
+    """Patches vendored next to PKGBUILD: yuters first, then extras."""
+    return sorted(dest.glob("yuters-000*.patch")) + sorted(dest.glob("extra-*.patch"))
+
+
+def version_key(nv: str) -> tuple[int, ...]:
+    """Order Arch kernel versions: 7.3.arch1-1 < 7.3.1.arch1-1 < 7.3.1.arch2-1."""
+    m = re.fullmatch(r"(\d+(?:\.\d+)*)\.arch(\d+)-(\d+)", nv)
+    if not m:
+        die(f"unexpected kernel version {nv!r} (want X.Y[.Z].archN-R)")
+    kernel = [int(n) for n in m.group(1).split(".")]
+    kernel += [0] * (3 - len(kernel))
+    return (*kernel, int(m.group(2)), int(m.group(3)))
 
 
 def die(msg: str, code: int = 1) -> None:
@@ -48,7 +72,7 @@ def format_array(name: str, vals: list[str]) -> str:
     return f"{name}=({pad.join(vals)})"
 
 
-def replace_arrays(dest: str, upstream: str) -> str:
+def replace_arrays(dest: str, upstream: str, keep: int) -> str:
     dest_map = {m.group(1): items(m.group(2)) for m in ARRAY_RE.finditer(dest)}
     up_map = {m.group(1): items(m.group(2)) for m in ARRAY_RE.finditer(upstream)}
 
@@ -61,9 +85,9 @@ def replace_arrays(dest: str, upstream: str) -> str:
         if name.endswith("_x86_64"):
             merged = theirs
         else:
-            if len(ours) < YUTERS_COUNT:
-                die(f"{name}: destination PKGBUILD missing yuters checksums")
-            merged = theirs + ours[-YUTERS_COUNT:]
+            if len(ours) < keep:
+                die(f"{name}: destination PKGBUILD has {len(ours)} checksums, needs {keep} for local patches")
+            merged = theirs + ours[-keep:]
         return format_array(name, merged)
 
     out, n = ARRAY_RE.subn(swap, dest)
@@ -82,15 +106,15 @@ def replace_assign(text: str, key: str, value: str) -> str:
 def refresh_banner(text: str, pkgver: str, pkgrel: str, commit: str) -> str:
     nv = f"{pkgver}-{pkgrel}"
     text = re.sub(
-        r"^# linux-t2-mbp161 — stock Watanare linux-t2 .* plus yuters e77b03f",
-        f"# linux-t2-mbp161 — stock Watanare linux-t2 {nv} plus yuters e77b03f",
+        r"^# linux-t2-mbp161 — (?:stock Watanare linux-t2|Watanare linux-t2 packaging) \S+ plus yuters e77b03f",
+        f"# linux-t2-mbp161 — Watanare linux-t2 packaging {nv} plus yuters e77b03f",
         text,
         count=1,
         flags=re.M,
     )
     if commit:
         text = re.sub(
-            r"^# Upstream packaging: NoaHimesaka1873/linux-t2-arch @ \S+ \(v[^)]+\)",
+            r"^# Upstream packaging: NoaHimesaka1873/linux-t2-arch @ \S+ \(v[^)]+\).*$",
             f"# Upstream packaging: NoaHimesaka1873/linux-t2-arch @ {commit} (v{nv})",
             text,
             count=1,
@@ -126,15 +150,24 @@ def main() -> int:
     old_hash = field(dest, "T2_PATCH_HASH")
     new_hash = field(upstream, "T2_PATCH_HASH")
 
-    patches = sorted(args.dest.glob("yuters-000*.patch"))
-    if len(patches) != YUTERS_COUNT:
-        die(f"expected {YUTERS_COUNT} yuters-000*.patch in {args.dest} (got {len(patches)})")
+    yuters = sorted(args.dest.glob("yuters-000*.patch"))
+    if len(yuters) != YUTERS_COUNT:
+        die(f"expected {YUTERS_COUNT} yuters-000*.patch in {args.dest} (got {len(yuters)})")
+    patches = local_patches(args.dest)
+    for patch in patches:
+        if not re.search(rf"^\s+{re.escape(patch.name)}\s*$", dest, re.M):
+            die(f"{patch.name} is in {args.dest} but not in PKGBUILD source=()")
+
+    if version_key(new_nv) < version_key(old_nv):
+        print(f"packaging {old_nv} is newer than linux-t2-arch {new_nv}; not downgrading")
+        print(f"T2_PATCH_HASH {old_hash} kept (upstream has {new_hash})")
+        return EXIT_AHEAD
 
     out = dest
     out = replace_assign(out, "pkgver", new_ver)
     out = replace_assign(out, "pkgrel", new_rel)
     out = replace_assign(out, "T2_PATCH_HASH", new_hash)
-    out = replace_arrays(out, upstream)
+    out = replace_arrays(out, upstream, len(patches))
     out = refresh_banner(out, new_ver, new_rel, args.commit)
 
     cfg_changed = up_cfg.is_file() and (
@@ -145,11 +178,12 @@ def main() -> int:
 
     print(f"packaging {old_nv} -> {new_nv}")
     print(f"T2_PATCH_HASH {old_hash} -> {new_hash}")
+    print(f"local patches kept: {len(patches)} ({len(yuters)} yuters + {len(patches) - len(yuters)} extra)")
     print(f"PKGBUILD {'changed' if pb_changed else 'unchanged'}")
     print(f"config.x86_64 {'changed' if cfg_changed else 'unchanged'}")
 
     if args.dry_run or not changed:
-        return 0 if changed else 2
+        return 0 if changed else EXIT_UNCHANGED
 
     dest_pb.write_text(out)
     if cfg_changed:

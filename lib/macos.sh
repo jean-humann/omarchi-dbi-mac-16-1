@@ -757,13 +757,15 @@ macos_copy_pack() {
   _macos_refuse_installer_out "$dest"
   expect "Copy toolbox onto the private stick" \
     "Shareable pack: README, bin, lib, files, kernel, macos, scripts, mbp16-1-powerd source." \
+    "Plus kernel/prebuilt/ if you downloaded the CI kernel packages (README D4)." \
     "Not keybags. Not the private diary. The ISO flash does not touch this stick."
   _pack_helpers_identical
+  _macos_prebuilt_report
   if ((DRY_RUN)); then
-    log "dry-run: pack --force $dest"
+    log "dry-run: pack --force $dest  (with kernel/prebuilt/)"
     return 0
   fi
-  _pack_write "$dest" 1 1
+  _pack_write "$dest" 1 1 1
   if [[ -d $ROOT/.git && ! -f $ROOT/CONTINUE.md ]]; then
     rm -rf "$dest/.git"
     if command -v rsync >/dev/null 2>&1; then
@@ -793,6 +795,38 @@ Subcommands (one piece): mbp16-1 doctor, apply gpu / display / … — see READM
 EOF
   ok "toolbox" "$dest"
   hint "after first Linux boot: cd to ${PACK_NAME} on this stick, then ./bin/mbp16-1 setup"
+}
+
+# Check kernel/prebuilt/ against kernel/prebuilt.sha256 + .inputs before it
+# goes onto the stick, so a bad or stale download shows up here and not after
+# the reboot. bash 3.2 safe (no mapfile). setup checks again before pacman -U.
+_macos_prebuilt_report() {
+  local dir=$KERNEL_DIR/prebuilt sums=$KERNEL_DIR/prebuilt.sha256 want name got bad=0 n=0
+  if ! compgen -G "$dir/*.pkg.tar.zst" >/dev/null; then
+    info "kernel/prebuilt/ empty" "setup will compile ${KERNEL_PKGBASE} (45–90 min) — README D4, Prebuilt packages"
+    return 0
+  fi
+  if [[ ! -f $sums || ! -f $KERNEL_DIR/prebuilt.inputs ]]; then
+    warn "kernel/prebuilt.sha256 or .inputs missing" "setup will refuse these packages and offer to compile"
+    return 0
+  fi
+  if [[ $(kernel_inputs_digest) != "$(awk 'NF { print $1; exit }' "$KERNEL_DIR/prebuilt.inputs")" ]]; then
+    warn "kernel/ changed since the CI build" "these packages are another tree; setup would offer to compile"
+    return 0
+  fi
+  while read -r want name; do
+    [[ -n $want ]] || continue
+    name=${name#\*}
+    n=$((n + 1))
+    got=$(shasum -a 256 "$dir/$name" 2>/dev/null | awk '{ print $1 }')
+    [[ $got == "$want" ]] || bad=1
+  done <"$sums"
+  if ((bad == 0 && n == 2)); then
+    ok "kernel/prebuilt/" "both packages match kernel/prebuilt.sha256 — setup installs them, no compile"
+  else
+    warn "kernel/prebuilt/ does not match kernel/prebuilt.sha256" \
+      "download both .pkg.tar.zst again from the draft release; setup would offer to compile"
+  fi
 }
 
 _macos_ensure_private_mount() {

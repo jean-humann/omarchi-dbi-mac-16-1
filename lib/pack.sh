@@ -20,6 +20,7 @@ _pack_list() {
   section "Leave out"
   hint "private diary, agent notes, incidents, logs/, .cursor/"
   hint "mbp16-1-powerd/target/"
+  hint "kernel/prebuilt/  (CI kernel packages — only mbp16-1 macos copies them, onto KEYBAGS)"
   hint "keybags, catacomb archives, unredacted t2-touchid-doctor dumps"
 }
 
@@ -35,6 +36,7 @@ yuters-issue-e77b03f.md
 logs/
 .cursor/
 dist/
+kernel/prebuilt/
 
 # Build / junk
 mbp16-1-powerd/target/
@@ -67,12 +69,15 @@ _pack_guide() {
   fi
 }
 
+# $2=1 keeps kernel/prebuilt/ (CI kernel packages). Only the private KEYBAGS
+# copy (mbp16-1 macos) passes it; the shareable pack never carries binaries.
 _pack_stage() {
-  local staging=$1 guide d
+  local staging=$1 prebuilt=${2:-0} guide d
   guide=$(_pack_guide)
   mkdir -p "$staging"
   cp -a "$guide" "$staging/README.md"
   cp -a "$ROOT/bin" "$ROOT/lib" "$ROOT/files" "$ROOT/kernel" "$ROOT/macos" "$ROOT/scripts" "$staging/"
+  ((prebuilt)) || rm -rf "$staging/kernel/prebuilt"
   mkdir -p "$staging/mbp16-1-powerd"
   cp -a "$ROOT/mbp16-1-powerd/Cargo.toml" "$ROOT/mbp16-1-powerd/Cargo.lock" \
     "$ROOT/mbp16-1-powerd/README.md" "$ROOT/mbp16-1-powerd/mbp16-1-powerd.conf" \
@@ -103,8 +108,9 @@ _pack_copy_tree() {
 }
 
 # Write the shareable tree to $1. $2=1 force. $3=1 quiet (no section chrome).
+# $4=1 keeps kernel/prebuilt/ (private stick only).
 _pack_write() {
-  local dest=$1 force=${2:-0} quiet=${3:-0}
+  local dest=$1 force=${2:-0} quiet=${3:-0} prebuilt=${4:-0}
   local dest_abs staging is_git=0
   dest_abs=$(_pack_abs "$dest")
   [[ $dest_abs == "$ROOT" ]] && die "refusing to overwrite the working tree"
@@ -129,7 +135,7 @@ _pack_write() {
   fi
 
   staging=$(mktemp -d)
-  _pack_stage "$staging"
+  _pack_stage "$staging" "$prebuilt"
 
   if ((is_git)); then
     if command -v rsync >/dev/null 2>&1; then

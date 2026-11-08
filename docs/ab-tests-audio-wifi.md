@@ -110,7 +110,7 @@ The clean path, if stock speakers bother you: package lemmyg's `16_1` speaker gr
 - deqrocks found the cause (KaiT2en [`0014`](https://github.com/kaiT2en/KaiT2en-Fedora/blob/main/patches/runtime/wireless/0014-wifi-brcmfmac-keep-ARP-and-ND-offload-off-on-the-BCM4364-while-awake.patch), also submitted upstream). brcmfmac enables the firmware's ARP and IPv6 ND offload whenever the interface is up. On Apple's BCM4364 firmware, ND offload caps IPv6 downloads at about 55 Mbit/s. macOS enables these offloads only in sleep.
   - The patch keeps them off while the Mac is awake.
   - It is patch `04` in the 7.2.15 kernel prepared on 2026-11-08.
-  - It is in neither `linux-t2` 7.2.11 nor `linux-t2-mbp161` 7.2.3.
+  - Stock `linux-t2` 7.2.11 does not have it. The earlier `linux-t2-mbp161` 7.2.3 did not either.
 - Power save is already off by default: Omarchy 4.5 ships `/etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf` with `wifi.powersave = 2`. Only a profile that explicitly says `3 (enable)` overrides it.
 - `feature_disable=0x82000` (D2) concerns the WPA handshake, not throughput. The Omarchy 4.5 installer already writes the identical `/etc/modprobe.d/brcmfmac.conf`; `apply wifi` re-asserts it.
 - **Never disable IPv6 system-wide** (sysctl `disable_ipv6`). Touch ID reaches BridgeOS over link-local addresses on the T2 NCM interface. A per-profile setting on the Wi-Fi connection does not affect it.

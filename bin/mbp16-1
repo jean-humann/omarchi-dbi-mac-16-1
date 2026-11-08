@@ -46,6 +46,7 @@ usage() {
   ui_kv "apply gpu / display / …" "one Linux piece"
   ui_kv "apply luks" "built-in keyboard at the LUKS prompt (also in setup)"
   ui_kv "apply kernel --build" "first sleep kernel only (45–90 min)"
+  ui_kv "apply kernel --pkg [DIR]" "same kernel from CI packages (default kernel/prebuilt)"
   ui_kv "update kernel" "rebase daily onto current linux-t2-arch"
   ui_kv "deps" "runtimes only (setup/apply already call this)"
   ui_kv "pack [DIR]" "shareable tree (--check, --force DIR)"

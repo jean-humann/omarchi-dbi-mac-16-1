@@ -1,0 +1,104 @@
+name: kernel-build
+
+# Builds linux-t2-mbp161 from kernel/ and attaches the two packages to a DRAFT
+# release. A draft is visible only to people with write access to this repo,
+# so no kernel binary is published. The build log stays public.
+#
+# The toolbox trusts the committed kernel/prebuilt.sha256 + prebuilt.inputs
+# only. Copy SHA256SUMS and INPUTS from the draft into them, in a signed
+# commit (README D4, "Prebuilt packages").
+on:
+  push:
+    branches: ['kernel-*']
+    paths:
+      - 'kernel/**'
+      - '!kernel/prebuilt.sha256'
+      - '!kernel/prebuilt.inputs'
+      - '!kernel/README'
+      - '!kernel/*.md'
+      - '.github/workflows/kernel-build.yml'
+      - '.github/scripts/build-kernel.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    permissions:
+      contents: write # draft release only
+    steps:
+      - name: Free disk space
+        run: |
+          df -h / /mnt || true
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/powershell \
+            /usr/local/share/chromium /usr/lib/jvm
+          docker image prune --all --force >/dev/null
+          df -h / /mnt || true
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Pick the build disk
+        run: |
+          root=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+          mnt=$(df -BG --output=avail /mnt 2>/dev/null | tail -1 | tr -dc 0-9 || true)
+          if (( ${mnt:-0} > root )); then base=/mnt/kbuild; else base=$RUNNER_TEMP/kbuild; fi
+          sudo mkdir -p "$base/build" "$base/out"
+          echo "KBUILD_BASE=$base" >>"$GITHUB_ENV"
+          echo "build disk $base  (/ ${root}G free, /mnt ${mnt:-0}G free)"
+
+      - name: makepkg in archlinux
+        run: |
+          docker run --rm -e GITHUB_SHA \
+            -v "$GITHUB_WORKSPACE:/repo:ro" \
+            -v "$KBUILD_BASE/build:/build" \
+            -v "$KBUILD_BASE/out:/out" \
+            archlinux:latest \
+            bash /repo/.github/scripts/build-kernel.sh /repo /build /out
+
+      - name: Attach to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out=$KBUILD_BASE/out
+          nv=$(cat "$out/VERSION")
+          short=${GITHUB_SHA::7}
+          tag="linux-t2-mbp161-${nv}-${short}"
+          notes=$RUNNER_TEMP/notes.md
+          {
+            echo "Untested CI build of linux-t2-mbp161 ${nv} from ${GITHUB_SHA}."
+            echo
+            echo "Draft on purpose: only people with write access see it. Do not publish it."
+            echo "To use it: copy SHA256SUMS to kernel/prebuilt.sha256 and INPUTS to kernel/prebuilt.inputs"
+            echo "(signed commit), put both packages in kernel/prebuilt/, then mbp16-1 setup or apply kernel --pkg."
+            echo
+            echo '```'
+            cat "$out/SHA256SUMS"
+            echo
+            cat "$out/BUILDINFO.txt"
+            echo '```'
+          } >"$notes"
+          files=("$out"/*.pkg.tar.zst "$out/SHA256SUMS" "$out/INPUTS" "$out/BUILDINFO.txt")
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --clobber -R "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --notes-file "$notes" -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" "${files[@]}" --draft --target "$GITHUB_SHA" \
+              --title "linux-t2-mbp161 ${nv} (${short}), untested" \
+              --notes-file "$notes" -R "$GITHUB_REPOSITORY"
+          fi
+          {
+            echo "### linux-t2-mbp161 ${nv} → draft release \`${tag}\`"
+            echo '```'
+            cat "$out/SHA256SUMS" "$out/BUILDINFO.txt"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"

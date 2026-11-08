@@ -47,7 +47,7 @@ Requires apple-set-os so the iGPU is visible at 00:02.0.
 + */
  static bool force_igd;
 -module_param(force_igd, bool, 0);
--MODULE_PARM_DESC(force_idg, "Switch gpu to igd on module load. Make sure that you have apple-set-os set up and the iGPU is in `lspci -s 00:02.0`. (default: false) (bool)");
+-MODULE_PARM_DESC(force_igd, "Switch gpu to igd on module load. Make sure that you have apple-set-os set up and the iGPU is in `lspci -s 00:02.0`. (default: false) (bool)");
 +static bool force_igd_specified;
 +
 +static int param_set_force_igd(const char *val, const struct kernel_param *kp)

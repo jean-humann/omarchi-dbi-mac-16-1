@@ -377,10 +377,18 @@ apply_kernel() {
   require_16_1
   is_linux || die "apply kernel is Linux-only"
   ensure_core
+  case ${1:-} in
+    ""|--build) ;;
+    --pkg)
+      kernel_pkg_install "${2:-}"
+      return
+      ;;
+    *) die "unknown apply kernel flag ${1}" "use --build, or --pkg [DIR] (default kernel/prebuilt)" ;;
+  esac
   local dest
   dest=$(kernel_build_dest)
   expect "${KERNEL_PKGBASE} packaging" \
-    "Copies PKGBUILD + yuters ${KERNEL_YUTERS_REF} 0001–0005 only. Stock ${KERNEL_STOCK} stays installed." \
+    "Copies PKGBUILD + ${KERNEL_PATCHES_DESC} only. Stock ${KERNEL_STOCK} stays installed." \
     "First install from the vendored tree. After ${KERNEL_STOCK} moves: mbp16-1 update kernel." \
     "Do not run yuters install.sh or current yuters main (panel on AMD, DPM auto, by-path Aqua)."
   if [[ ${1:-} == --build ]]; then
@@ -401,6 +409,7 @@ apply_kernel() {
   else
     section "Next"
     hint "mbp16-1 apply kernel --build     45–90 min, plugged in (vendored tree)"
+    hint "mbp16-1 apply kernel --pkg       CI packages from kernel/prebuilt/, no compile"
     hint "mbp16-1 update kernel            rebase onto current linux-t2-arch, then makepkg"
     hint "or: cd $dest && makepkg -si && sudo limine-update && mbp16-1-limine-quiet"
     hint "after a hand build, re-run: mbp16-1 apply sleep   (boot order: drop-in + /etc/default/limine)"
@@ -477,7 +486,7 @@ apply_desktop() {
   confirm_ready "Reboot unplugged" \
     "No module_blacklist=amdgpu on the next boot." \
     "Log in with USB-C unplugged; plug after the lid is up." \
-    "Still needed: mbp16-1 apply kernel --build (45–90 min), then Touch ID." \
+    "Still needed: mbp16-1 apply kernel --pkg (CI packages) or --build (45–90 min), then Touch ID." \
     "Do not suspend until linux-t2-mbp161 is running."
 }
 
@@ -486,7 +495,7 @@ mbp16_1_setup() {
   require_16_1
   is_linux || die "setup is Linux-only" "On macOS: mbp16-1 macos"
   expect "setup" \
-    "Installs missing runtimes, then the 16,1 desktop files. Builds ${KERNEL_PKGBASE} if it is not installed." \
+    "Installs missing runtimes, then the 16,1 desktop files. Installs ${KERNEL_PKGBASE} if missing: CI packages from kernel/prebuilt/ when they match kernel/prebuilt.sha256, else makepkg." \
     "Asks keyboard + USB-C once. Do not suspend. Do not close the lid until that kernel is running." \
     "If this boot used module_blacklist=amdgpu, this run only writes GPU files — reboot without that token, then setup again."
   section "Checks" "Machine facts first. --yes does not skip these."
@@ -538,7 +547,18 @@ mbp16_1_setup() {
     return 0
   fi
 
-  apply_kernel --build
+  local prebuilt=$KERNEL_DIR/prebuilt
+  if kernel_prebuilt_verify "$prebuilt" --quiet; then
+    apply_kernel --pkg "$prebuilt"
+  else
+    if compgen -G "$prebuilt/*.pkg.tar.zst" >/dev/null; then
+      # Show why the CI packages are refused, then offer the compile.
+      kernel_prebuilt_verify "$prebuilt" || true
+      ask_yn "Compile ${KERNEL_PKGBASE} instead (45–90 min)" y ||
+        die "stopped before the kernel" "fix kernel/prebuilt/ (README D4, Prebuilt packages), then: mbp16-1 apply kernel --pkg"
+    fi
+    apply_kernel --build
+  fi
   section "Next"
   hint "After that reboot: mbp16-1 apply touchid"
 }

@@ -91,10 +91,10 @@ Stock Omarchy 4.5 on this 16,1 already has T2 audio, Broadcom firmware, `t2fanrd
 | Keyboard / trackpad | Yes | this toolbox (`apply input`) — Apple ISO French optional |
 | Touch Bar | Config 1 | Omarchy ISO (in-tree). This recipe **stays** USB config 1 |
 | Brightness keys | Yes | this toolbox — `gmux_backlight` (not Touch Bar backlight) |
-| Wi-Fi (BCM4364) | Yes | Omarchy ISO firmware + this toolbox `brcmfmac` WPA workaround |
+| Wi-Fi (BCM4364) | Yes | Omarchy ISO firmware + `brcmfmac` WPA workaround (Omarchy 4.5 writes it too). IPv6 can be slow: [A/B test](docs/ab-tests-audio-wifi.md#3-wi-fi-ipv6-throughput) |
 | Fans | Yes | Omarchy ISO `t2fanrd` + this toolbox linear **40–85 °C** |
 | Power / heat | Yes | this toolbox — AMD DPM **`low`** + `mbp16-1-powerd` |
-| Audio | Yes | Omarchy ISO (T2 audio) |
+| Audio | Yes | Omarchy ISO (T2 audio). Raw mic is quiet: optional [mic DSP](docs/ab-tests-audio-wifi.md#1-microphone-dsp) |
 | Bluetooth | Yes | Omarchy ISO (Broadcom firmware) |
 | Pointers | Yes | this toolbox — software cursors (AMD hardware cursor is a black square) |
 | ALS auto-brightness | No | unused on purpose |
@@ -756,6 +756,8 @@ BCM4364: keep **`brcmfmac` bound**. **Do not** install `broadcom-wl`. T2 NCM (To
 options brcmfmac feature_disable=0x82000
 ```
 
+The Omarchy 4.5 installer writes the same file (`fix-brcmfmac-supplicant.sh`); `apply wifi` re-asserts it. It fixes the WPA handshake, not speed. If IPv6 downloads stay near 55 Mbit/s while IPv4 is fast, the cause is the firmware's ND offload (KaiT2en patch `0014`). See the [Wi-Fi A/B test](docs/ab-tests-audio-wifi.md#3-wi-fi-ipv6-throughput). Never disable IPv6 system-wide: Touch ID uses link-local IPv6 on the T2 NCM interface.
+
 ### D3. apply fans
 
 `t2fanrd` Fan1 **and** Fan2, Intel package. Loud 30–60 s at boot until userspace. **Linear 40–85 °C** (not Omarchy stock 55–75). Do not exponential. Do not “fix” with DPM `auto` / `no_turbo` / unloading `t2bce`. Hunt: raise `low_temp` toward 46 then 48; never shrink `high_temp` to 75.
@@ -1064,7 +1066,8 @@ Optional extras, not this recipe. Dangerous substitutes are called out in the ph
 | `mbp161-amdgpu-dpm-governor` | Only if work runs on the 5500M |
 | Titan Ridge `mbp161_tb_bypass=1` | Not needed when 0005 + display is clean. The `72-mbp16-1-titan-ridge` rule (D1) covers the unseen-plug case on any kernel |
 | t2linux [PR #77](https://github.com/t2linux/linux-t2-patches/pull/77) (i915 forced 4 lanes) | Unmerged; works around `force_igd`. Test `gpu-power-prefs` instead ([C2b](#c2b-optional-test-gpu-power-prefs-4-lane-panel)) |
-| KaiT2en Arch packages (arch-mact2 tag `kait2en`) | Upstream ships them “with no support”, pinned to `linux-t2` 7.2.11. Not before C2b says 4 lanes |
+| KaiT2en Arch packages (arch-mact2 tag `kait2en`) | Upstream ships them “with no support”, pinned to `linux-t2` 7.2.11. Not before C2b says 4 lanes. `t2bce_audio-dsp` pulls `t2bce-dkms` (replaces the in-tree t2bce stack) and swaps `apple-t2-audio-config`: [2](docs/ab-tests-audio-wifi.md#2-speaker-dsp) |
+| Speaker DSP (lemmyg `install.sh`, bentsignal) | Unpackaged files in `/usr`, AUR plugins. lemmyg warns of speaker damage when misconfigured: [2](docs/ab-tests-audio-wifi.md#2-speaker-dsp) |
 | [OmApple](https://github.com/bramvanoploo/omarchy-t2-linux) recommended buttons | See below |
 | Linux ALS / clight / wluma | Unused on purpose |
 | Changing idle 150/300 s | Stock Omarchy |
@@ -1104,6 +1107,9 @@ echo s2idle | sudo tee /sys/power/mem_sleep
 | LUKS keyboard | [omarchy#17755](https://github.com/omacom/omarchy/issues/17755) (`zz-omarchy-kernel-modules.conf` drops `t2bce_vhci`) |
 | Titan Ridge | [klizas/t2-kernel-patches](https://github.com/klizas/t2-kernel-patches) `0001-xhci-pci-t2-titan-ridge-no-runtime-pm` (udev form here) |
 | Omarchy T2 panel | [bramvanoploo/omarchy-t2-linux](https://github.com/bramvanoploo/omarchy-t2-linux) (OmApple; recommended buttons conflict, see [10](#10-leave-out)) |
+| Audio DSP | [kazeshini178/t2-mbp16-1-mic-dsp-arch](https://github.com/kazeshini178/t2-mbp16-1-mic-dsp-arch) (mic, `a62dfa3`); [lemmyg/t2-apple-audio-dsp](https://github.com/lemmyg/t2-apple-audio-dsp) `configs/16_1`; [KaiT2en Audio DSP](https://kait2en.org/) |
+| Wi-Fi IPv6 | [bentsignal `wifi-performance.md`](https://github.com/bentsignal/t2-omarchy/blob/main/docs/wifi-performance.md) (same model); KaiT2en [`0014` ND offload](https://github.com/kaiT2en/KaiT2en-Fedora/blob/main/patches/runtime/wireless/0014-wifi-brcmfmac-keep-ARP-and-ND-offload-off-on-the-BCM4364-while-awake.patch) |
+| A/B tests | [docs/ab-tests-audio-wifi.md](docs/ab-tests-audio-wifi.md): mic DSP, speaker DSP, Wi-Fi IPv6 |
 | Visual notes (French, 2026-11-08) | [synthèse](docs/2026-11-08-synthese-omarchy-t2.html), [proposition](docs/2026-11-08-proposition-omarchy-t2.html). Open them locally; GitHub shows HTML as source |
 | Touch ID | [jean-humann `mbp161-mixed-envelope`](https://github.com/jean-humann/t2-touchid-linux/tree/mbp161-mixed-envelope); [`docs/PAM_AUTH.md`](https://github.com/jean-humann/t2-touchid-linux/blob/mbp161-mixed-envelope/docs/PAM_AUTH.md) |
 | Touch ID, other stacks | [t2linux Touch ID](https://wiki.t2linux.org/guides/touchid/) (KaiT2en, Ubuntu/Debian, macOS-enrolled fingers); [macintog/t2touch](https://github.com/macintog/t2touch) (Linux-only, no macOS: [#16](https://github.com/macintog/t2touch/issues/16), [#23](https://github.com/macintog/t2touch/issues/23)) |

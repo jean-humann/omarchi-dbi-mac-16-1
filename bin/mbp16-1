@@ -27,7 +27,7 @@ usage() {
   ui_meta "Omarchy toolbox for MacBookPro16,1 (A2141). Keep macOS."
   section "Easy path" "One command on macOS, two on Linux. Commands check what they can; you type y on each remaining gate."
   step 1 "mbp16-1 macos" "macOS — checks T2 / USB / Touch ID, then shrink, keybags + toolbox, ISO, flash"
-  step 2 "Option-boot orange EFI" "installer disk = Free space (keep macOS)"
+  step 2 "Option-boot orange EFI" "installer: Free space install (alongside existing data) — keep macOS"
   step 3 "mbp16-1 setup" "Linux from KEYBAGS — deps + desktop + sleep kernel (asks keyboard + USB-C)"
   step 4 "reboot onto linux-t2-mbp161" "unplugged; do not suspend on stock"
   step 5 "mbp16-1 apply touchid" "refuses until that kernel / DPM / NCM are up; then catacomb from KEYBAGS"
@@ -41,6 +41,7 @@ usage() {
   ui_kv "doctor" "check this machine (pass / fail / note + next commands)"
   ui_kv "macos guide" "human checklist"
   ui_kv "macos sticks / shrink / …" "one Phase A piece"
+  ui_kv "macos reclaim" "reinstall: delete the old Linux partitions (typed id each)"
   ui_kv "apply desktop" "C+D files without the sleep kernel"
   ui_kv "apply gpu / display / …" "one Linux piece"
   ui_kv "apply kernel --build" "first sleep kernel only (45–90 min)"
@@ -53,7 +54,7 @@ usage() {
   ui_kv "--layout fr-mac|skip" "Apple ISO French vs trackpad-only (default: ask)"
   ui_kv "--external yes|no" "USB-C monitor in Hyprland (default: ask)"
   ui_kv "--external-desc 'Make Model'" "exact hyprctl description; implies --external yes"
-  ui_kv "--iso PATH" "existing Omarchy ISO (default: download pinned 4.0.3)"
+  ui_kv "--iso PATH" "existing Omarchy ISO (default: download pinned ${OMARCHY_ISO_VERSION})"
   ui_kv "--installer diskN" "USB whole disk ≥8 GB for the ISO — ALL DATA ERASED (macos)"
   ui_kv "--private diskN" "USB whole disk for keybags + toolbox — never the installer (macos)"
   ui_kv "--container diskNsM" "internal APFS store to shrink (usually disk0s2, not a USB disk)"
@@ -215,7 +216,7 @@ case $cmd in
     sub=run
     if [[ $# -gt 0 && $1 != --* ]]; then
       case $1 in
-        guide|sticks|shrink|export|run|flash) sub=$1; shift ;;
+        guide|sticks|reclaim|shrink|export|run|flash) sub=$1; shift ;;
       esac
     fi
     macos_args=()
@@ -298,6 +299,11 @@ case $cmd in
         fi
         ui_end
         ;;
+      reclaim)
+        ui_command "macos reclaim"
+        macos_reclaim
+        ui_end
+        ;;
       shrink)
         ui_command "macos shrink"
         if ((${#macos_args[@]})); then
@@ -322,7 +328,7 @@ case $cmd in
         macos_flash "${MACOS_ISO_PATH:-$(_macos_iso_dest)}"
         ui_end
         ;;
-      *) die "unknown macos subcommand $sub" "run | guide | sticks | shrink | export | flash" ;;
+      *) die "unknown macos subcommand $sub" "run | guide | sticks | reclaim | shrink | export | flash" ;;
     esac
     ;;
   apply)

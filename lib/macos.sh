@@ -452,7 +452,7 @@ _macos_assert_installer_size() {
     warn "$disk is $(_macos_human_gb "$bytes") — tight" \
       "ISO is $(_macos_human_gb "$iso"). Prefer 8 GB or larger."
   else
-    ok "installer size" "$disk  $(_macos_human_gb "$bytes")  (request ≥8 GB; ISO ~6.3 GB)"
+    ok "installer size" "$disk  $(_macos_human_gb "$bytes")  (request ≥8 GB; ISO ~$(_macos_human_gb "$iso"))"
   fi
 }
 
@@ -469,7 +469,7 @@ _macos_assert_usb() {
 _macos_print_usb() {
   local i n id fit extra
   n=${#MACOS_USB_DISKS[@]}
-  section "USB disks" "Installer stick: ≥8 GB (ISO ~6.3 GB). Flashing ERASES ALL DATA on that disk. A keyboard does not count."
+  section "USB disks" "Installer stick: ≥8 GB (ISO ~$(_macos_human_gb "$OMARCHY_ISO_BYTES")). Flashing ERASES ALL DATA on that disk. A keyboard does not count."
   hint "Private stick is not wiped by dd. Never pick the same disk for both roles."
   if ((n == 0)); then
     fail "USB sticks" "none. Plug an 8 GB+ installer stick and the private keybag stick, then re-run."
@@ -629,11 +629,13 @@ _macos_iso_dest() {
 
 macos_iso() {
   local dest got
+  [[ -n $OMARCHY_ISO_SHA256 ]] || die "no SHA-256 pinned for Omarchy ${OMARCHY_ISO_VERSION}" \
+    "set MBP16_1_OMARCHY_ISO_SHA256 (and _URL, _BYTES) from iso.omarchy.org/<iso>.sha256, or use 4.5.0 / 4.0.3"
   dest=$(_macos_iso_dest)
   expect "Omarchy ${OMARCHY_ISO_VERSION} ISO" \
     "Pinned SHA-256 ${OMARCHY_ISO_SHA256}" \
     "$OMARCHY_ISO_URL" \
-    "~6.3 GB. Cached at $dest. Do not substitute a newer ISO unless you change the pin."
+    "~$(_macos_human_gb "$OMARCHY_ISO_BYTES"). Cached at $dest. Do not substitute a newer ISO unless you change the pin."
 
   if [[ -f $dest ]]; then
     log "checking SHA-256" "$dest  (minutes on a 6 GB file)"
@@ -826,7 +828,7 @@ macos_flash() {
 
   expect "Flash installer $MACOS_INSTALLER — ERASES ALL DATA on that stick" \
     "Every partition and file on $MACOS_INSTALLER will be gone. $MACOS_PRIVATE is untouched. Not disk0." \
-    "Need ≥8 GB (ISO ~6.3 GB). diskutil unmountDisk + dd to /dev/r${MACOS_INSTALLER} (bs=4m). Several minutes." \
+    "Need ≥8 GB (ISO ~$(_macos_human_gb "$OMARCHY_ISO_BYTES")). diskutil unmountDisk + dd to /dev/r${MACOS_INSTALLER} (bs=4m). Several minutes." \
     "macOS dd: press Ctrl-T for progress."
   _macos_confirm_id "$MACOS_INSTALLER" \
     "Type $MACOS_INSTALLER to ERASE ALL DATA on it and write the Omarchy ISO"
@@ -954,6 +956,89 @@ macos_map_apfs() {
   MACOS_CONTAINER_MAPPED=1
 }
 
+# Reinstall: partitions an earlier Linux install left on the internal disk.
+# Everything on the APFS store's disk except slice 1 (Apple EFI, ~300 MB) and
+# Apple_* slices (the APFS store itself). Omarchy names its own GPT entries
+# OMARCHY_EFI and OMARCHY_ROOT; diskutil usually shows them as "EFI" (FAT,
+# ~2 GB) and "Linux Filesystem" / a raw GUID (LUKS). stdout: one id per line.
+_macos_foreign_partitions() {
+  local whole=$1 id ptype
+  while IFS= read -r id; do
+    [[ -n $id ]] || continue
+    [[ $id == "${whole}s1" ]] && continue
+    [[ $id == "${MACOS_CONTAINER:-}" ]] && continue
+    ptype=$(_macos_diskutil_val "$id" "Partition Type")
+    case $ptype in
+      Apple_*) continue ;;
+    esac
+    printf '%s\n' "$id"
+  done < <(diskutil list "$whole" 2>/dev/null | awk -v w="$whole" '
+    $NF ~ ("^" w "s[0-9]+$") { print $NF }
+  ')
+}
+
+_macos_describe_partition() {
+  local id=$1 ptype vname size
+  ptype=$(_macos_diskutil_val "$id" "Partition Type")
+  vname=$(_macos_diskutil_val "$id" "Volume Name")
+  size=$(_macos_diskutil_val "$id" "Disk Size")
+  printf '%s  ·  %s  ·  %s\n' "${ptype:-type?}" "${vname:-no volume name}" "${size%% (*}"
+}
+
+# Delete leftover Linux partitions so the old Omarchy space becomes free space
+# again — instead of shrinking APFS a second time. Each deletion needs the
+# identifier typed back. --yes never deletes. Never disk0s1, never the APFS store.
+macos_reclaim() {
+  local whole id desc got n=0 deleted=0
+  macos_map_apfs
+  whole=$(_macos_whole_from_store "$MACOS_CONTAINER")
+  section "Earlier Linux install" \
+    "Reinstall only. Old OMARCHY_EFI + LUKS root sit after $MACOS_CONTAINER; delete them to get the hole back."
+  local found=()
+  while IFS= read -r id; do
+    [[ -n $id ]] && found+=("$id")
+  done < <(_macos_foreign_partitions "$whole")
+  n=${#found[@]}
+  if ((n == 0)); then
+    ok "no leftover partitions" "only ${whole}s1 (Apple EFI) and $MACOS_CONTAINER (APFS) on $whole"
+    return 0
+  fi
+  for id in "${found[@]}"; do
+    desc=$(_macos_describe_partition "$id")
+    case $desc in
+      *Microsoft*|*BOOTCAMP*|*NTFS*|*ExFAT*|*FAT32*Windows*)
+        warn "$id  $desc" "looks like Boot Camp / Windows / data — keep it unless you are sure"
+        ;;
+      *) info "$id" "$desc" ;;
+    esac
+  done
+  hint "Never ${whole}s1 (Apple EFI) and never $MACOS_CONTAINER (macOS). Those are not listed above."
+  hint "Deleting the LUKS root destroys the old Linux install for good (it is unrecoverable anyway without its passphrase)."
+  if ((ASSUME_YES)); then
+    warn "--yes never deletes partitions" "re-run: mbp16-1 macos reclaim   (in a terminal) to delete them one by one"
+    return 0
+  fi
+  for id in "${found[@]}"; do
+    got=$(ask_line "Type $id to DELETE it (Enter keeps it)" "")
+    got=${got#/dev/}
+    if [[ -z $got ]]; then
+      log "kept $id"
+      continue
+    fi
+    [[ $got == "$id" ]] || die "typed $got, wanted $id" "nothing deleted for $id. Re-run: mbp16-1 macos reclaim"
+    # Belt and braces: the list above already excludes these.
+    [[ $id != "${whole}s1" && $id != "$MACOS_CONTAINER" ]] || die "refusing to delete $id"
+    run as_root diskutil unmount force "/dev/$id" >/dev/null 2>&1 || true
+    run as_root diskutil eraseVolume free none "$id"
+    deleted=$((deleted + 1))
+  done
+  if ((deleted)); then
+    section "Map after reclaim" "Free space must sit AFTER $MACOS_CONTAINER."
+    diskutil list "$whole"
+    ok "free on map" "$(_macos_human_gb "$(_macos_existing_free_bytes "$whole")")"
+  fi
+}
+
 macos_shrink() {
   local keep_arg=${1:-}
   local current rec_min file_min existing want min_free additional new_keep result_free whole
@@ -1004,6 +1089,13 @@ macos_shrink() {
     hint "Do not create a Linux partition in that hole."
     MACOS_SHRINK_SKIP=1
     return 0
+  fi
+
+  local leftovers
+  leftovers=$(_macos_foreign_partitions "$whole" | tr '\n' ' ')
+  if [[ -n ${leftovers// /} ]]; then
+    warn "old partitions still on $whole: ${leftovers% }" \
+      "reinstall? run mbp16-1 macos reclaim first, or this shrinks APFS a second time"
   fi
 
   if [[ -z $MACOS_KEEP && $MACOS_SHRINK_APPLY -eq 0 && -z $keep_arg && -z $MACOS_FREE ]]; then
@@ -1075,7 +1167,7 @@ macos_guide() {
   ui_meta "Easy path is macos, then setup, then apply touchid. This is the human checklist."
   section "Easy path" "README Easy path. One command on macOS, two on Linux."
   step 1 "mbp16-1 macos" "checks T2 / USB / Touch ID, asks a yes on each gate, then shrink → export → ISO → flash"
-  step 2 "Option-boot orange EFI" "installer disk = Free space (keep macOS)"
+  step 2 "Option-boot orange EFI" "installer: Free space install (alongside existing data) — keep macOS"
   step 3 "mbp16-1 setup" "from KEYBAGS; then reboot onto linux-t2-mbp161"
   step 4 "mbp16-1 apply touchid" "then provision catacomb from t2-touchid-export/"
 
@@ -1086,7 +1178,8 @@ macos_guide() {
   step 4 "Two USB sticks + wired keyboard" "installer ≥8 GB will be FULLY ERASED; private stick keeps keybags + toolbox"
 
   section "Subcommands" "Same path, one piece. See README Detailed guide."
-  hint "macos sticks / shrink / export / flash    apply gpu / display / …    doctor"
+  hint "macos sticks / reclaim / shrink / export / flash    apply gpu / display / …    doctor"
+  hint "Reinstall (forgot the password): mbp16-1 macos reclaim deletes the old Linux partitions first."
   hint "Guide: README.md"
 }
 
@@ -1147,10 +1240,11 @@ macos_run() {
   command -v curl >/dev/null || die "curl missing"
   ui_meta "Easy path on macOS: checks, then a yes on each gate, then shrink → export → ISO → flash."
   section "This command will" "Serial on the internal SSD. Do not overlap these jobs."
-  hint "Map APFS + two USB disks, shrink if the hole is short (20–40 min), export keybags + toolbox, download ISO, erase the installer stick."
+  hint "Map APFS + two USB disks, offer to delete an earlier Linux install, shrink if the hole is short (20–40 min), export keybags + toolbox, download ISO, erase the installer stick."
   _macos_easy_preflight
   macos_map_apfs
   macos_map_sticks
+  macos_reclaim
   MACOS_SHRINK_APPLY=1
   macos_shrink
   macos_export
@@ -1159,6 +1253,7 @@ macos_run() {
   section "Next"
   hint "Confirm Touch ID still works on macOS."
   hint "Shut down ~30 s. Power on, hold Option, pick orange EFI Boot."
-  hint "Installer disk = Free space (the APFS hole). Not entire disk. Not Apple's ~300 MB EFI."
+  hint "Installer (4.5): Disk → \"Free space install (alongside existing data)\". NOT \"Full disk install\" (listed first)."
+  hint "It creates its own EFI partition in the hole. Never pick Apple's ~300 MB EFI or the APFS container."
   hint "Keep the private stick: toolbox in ${PACK_NAME}/, keybags in t2-touchid-export/ — never gist the tars."
 }

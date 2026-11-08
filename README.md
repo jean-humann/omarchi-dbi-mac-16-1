@@ -1,8 +1,10 @@
 # Dual-boot Omarchy on MacBookPro16,1 (A2141)
 
-Keep **macOS**. Install **Omarchy 4.0.3** into **unallocated** space on a 16-inch 2019 Intel (`MacBookPro16,1` / A2141). Intel lid + idle AMD, USB-C, s2idle, T2 Touch ID.
+Keep **macOS**. Install **Omarchy 4.5.0** (pinned; 4.0.3 fallback) into **unallocated** space on a 16-inch 2019 Intel (`MacBookPro16,1` / A2141). Intel lid + idle AMD, USB-C, s2idle, T2 Touch ID.
 
-Not Apple Silicon. Not 13" T2 (`16,2`). Not T1. Official [mac-support](https://omarchy.org/manual/mac-support/) still says full-disk wipe and omits this model.
+Not Apple Silicon. Not 13" T2 (`16,2`). Not T1. Official [mac-support](https://omarchy.org/manual/mac-support/) still says full-disk wipe and omits this model; the official [Dual Boot Install](https://omarchy.org/manual/dual-boot-install/) page documents **Free space install** (written for Windows, same installer).
+
+Reinstalling because the password is lost? See [Reinstall (forgot the password)](#reinstall-forgot-the-password). Touch ID with no macOS at all? See [E1](#e1-touch-id-without-macos).
 
 You need a **wired USB keyboard** on the Mac (Recovery, LUKS, Limine **e**/F10, black panel) and **two USB sticks**: installer ≥8 GB (the ISO **erases** it) and a private stick (keybags + this toolbox — never gist, never the installer).
 
@@ -27,9 +29,9 @@ cd omarchi-dbi-mac-16-1
 ./bin/mbp16-1 macos
 ```
 
-`macos` **stops** if the model is not `MacBookPro16,1`, if Secure Boot is still Full/Medium, if external boot is disallowed, if fewer than two USB disks are plugged, or if no Touch ID prints are enrolled. It **asks you to type y** for backup, keyboard + lid, Recovery (only if it could not read both T2 knobs), Touch ID (only if `bioutil` did not report prints), and continuing on battery. Then it maps disks, shrinks APFS if needed, writes keybags **and this toolbox** onto KEYBAGS, downloads pinned 4.0.3, and `dd`s the installer (you type that disk id again before erase).
+`macos` **stops** if the model is not `MacBookPro16,1`, if Secure Boot is still Full/Medium, if external boot is disallowed, if fewer than two USB disks are plugged, or if no Touch ID prints are enrolled. It **asks you to type y** for backup, keyboard + lid, Recovery (only if it could not read both T2 knobs), Touch ID (only if `bioutil` did not report prints), and continuing on battery. Then it maps disks, shrinks APFS if needed, offers to delete an earlier Linux install (`macos reclaim`, reinstall only), writes keybags **and this toolbox** onto KEYBAGS, downloads pinned 4.5.0, and `dd`s the installer (you type that disk id again before erase).
 
-Shut down **~30 s**. Power on, hold **Option**, pick **orange EFI Boot**. Installer disk = **Free space** (keep macOS). Not entire disk. Not Apple’s ~300 MB EFI.
+Shut down **~30 s**. Power on, hold **Option**, pick **orange EFI Boot**. Installer: pick the internal SSD, then **Free space install (alongside existing data)** (keep macOS). **Not** “Full disk install” — it is listed **first** and wipes macOS. The installer creates its own 2 GiB `OMARCHY_EFI` in the hole; it never touches Apple’s ~300 MB EFI.
 
 ### 2. Linux — two commands
 
@@ -45,20 +47,46 @@ chmod +x bin/mbp16-1
 
 `setup` checks DMI, AMD DPM / amdgpu blacklist, and AC; then asks a yes for USB keyboard, no-suspend until `linux-t2-mbp161`, and not using Omarchy Hybrid GPU / Fingerprint. It also asks keyboard layout and USB-C once. `apply touchid` **refuses** until that kernel is running with DPM **low** and T2 NCM is present; then it asks that KEYBAGS with *this* Mac’s export is plugged.
 
-If the **lid is black**: USB keyboard, Limine **e**, `module_blacklist=amdgpu`, **F10**, login, `setup`, reboot **without** that token, `setup` again.
+If the **lid is black**: USB keyboard, tap a key as soon as Limine starts (4.5 hides the menu and boots after 1 s), **e**, `module_blacklist=amdgpu`, **F10**, login, `setup`, reboot **without** that token, `setup` again.
+
+### Reinstall (forgot the password)
+
+Two secrets, often confused. The **LUKS passphrase** is typed at boot, before Hyprland. The **user password** is for `sudo` and the lock screen. Omarchy autologins after LUKS, so you may never have typed the second one.
+
+- **LUKS passphrase known, user password lost:** no reinstall. Boot the installer stick and switch to a second console on the USB keyboard (**Ctrl+Alt+F2**, log in as `root`, no password; the ISO is archiso-based). Do **not** press Ctrl+C in the installer: on its first screen it offers to prepare the machine for another owner. Then:
+
+  ```bash
+  lsblk -o NAME,SIZE,FSTYPE,PARTLABEL     # the crypto_LUKS one (OMARCHY_ROOT on a 4.5 install)
+  cryptsetup open /dev/nvme0n1pN root     # N from lsblk; asks the LUKS passphrase
+  mount -o subvol=@ /dev/mapper/root /mnt
+  arch-chroot /mnt passwd <user>          # <user>: awk -F: '$3==1000{print $1}' /mnt/etc/passwd
+  umount /mnt && cryptsetup close root && reboot
+  ```
+- **LUKS passphrase lost:** the Linux root cannot be recovered. Reinstall:
+
+1. **macOS:** `./bin/mbp16-1 macos`. Before the shrink it runs **`macos reclaim`**:
+   - It lists what the old install left on the internal disk: the 2 GiB `OMARCHY_EFI` and the LUKS `OMARCHY_ROOT`.
+   - Type each identifier to delete it; Enter keeps it.
+   - It never lists `disk0s1` (Apple EFI) or the APFS container. `--yes` never deletes.
+   - The hole comes back, so APFS is not shrunk a second time. Standalone: `./bin/mbp16-1 macos reclaim`.
+2. Your Touch ID prints must still be enrolled **in macOS**. `macos` re-exports keybags + Catacomb onto KEYBAGS (the old `/var/lib/t2-touchid` is gone).
+3. Option-boot the stick and pick **Free space install (alongside existing data)**. Write the new LUKS passphrase down.
+4. **Linux:** run `./bin/mbp16-1 setup`. `./bin/mbp16-1 doctor` → Kernel must show **`Limine default linux-t2-mbp161`**. The 4.5 ISO writes `BOOT_ORDER="linux-t2, …"`; `setup` replaces it ([D4](#d4-apply-kernel---build)).
+5. Reboot unplugged. `uname -r` must end in `-t2-mbp161`. Then run `./bin/mbp16-1 apply touchid`.
+6. Later, after `omarchy update`: `./bin/mbp16-1 update kernel --check`.
 
 ### What this install supports
 
-Stock Omarchy 4 on this 16,1 already has T2 audio, Broadcom firmware, `t2fanrd`, and in-tree Touch Bar. It does **not** mux the lid to Intel, pin USB-C, sleep, or speak to Touch ID. That is this toolbox.
+Stock Omarchy 4.5 on this 16,1 already has T2 audio, Broadcom firmware, `t2fanrd`, and in-tree Touch Bar. It does **not** mux the lid to Intel, pin USB-C, sleep, or speak to Touch ID. That is this toolbox.
 
 | Feature | Support | Thanks to |
 | --- | --- | --- |
-| Keep macOS (dual-boot) | Yes | this toolbox (`macos` hole + installer **Free space**) |
+| Keep macOS (dual-boot) | Yes | this toolbox (`macos` hole + installer **Free space install**) |
 | Intel lid (Apple Color LCD) | Yes | this toolbox (`setup` / `apply gpu` — gmux `force_igd`) |
 | USB-C DisplayPort | Yes | this toolbox (`apply display` — AMD 5500M; unplug before login) |
 | Sleep | Yes | this toolbox (`linux-t2-mbp161` s2idle). **Not** stock `linux-t2` |
 | Lid close | Yes | this toolbox — undocked sleeps, docked ignores |
-| Touch ID | Yes | this toolbox (`macos` export + `apply touchid`) — lock, sudo, pkexec |
+| Touch ID | Yes | this toolbox (`macos` export + `apply touchid`) — lock, sudo, pkexec. Needs macOS-enrolled prints; Linux-only: [E1](#e1-touch-id-without-macos) |
 | Keyboard / trackpad | Yes | this toolbox (`apply input`) — Apple ISO French optional |
 | Touch Bar | Config 1 | Omarchy ISO (in-tree). This recipe **stays** USB config 1 |
 | Brightness keys | Yes | this toolbox — `gmux_backlight` (not Touch Bar backlight) |
@@ -69,12 +97,12 @@ Stock Omarchy 4 on this 16,1 already has T2 audio, Broadcom firmware, `t2fanrd`,
 | Bluetooth | Yes | Omarchy ISO (Broadcom firmware) |
 | Pointers | Yes | this toolbox — software cursors (AMD hardware cursor is a black square) |
 | ALS auto-brightness | No | unused on purpose |
-| Hybrid GPU / mux | No | Intel lid always; Omarchy Hybrid GPU menu is hidden |
+| Hybrid GPU / mux | No | Intel lid always; Omarchy Hybrid GPU menu entries are hidden (4.0 key + 4.5 on/off) |
 | Suspend on stock `linux-t2` | No | poisons the 5500M SMU (`-62`). Recovery kernel only |
 
 Do **not** publish keybags, catacomb archives, `T2_TOUCHID_HOST`, serials, or unredacted `t2-touchid-doctor` output.
 
-Later, after `omarchy update` (recovery `linux-t2` may move): `mbp16-1-limine-quiet`, then `mbp16-1 update kernel` if daily is behind.
+Later, after `omarchy update` (recovery `linux-t2` may move): `mbp16-1-limine-quiet`, then `mbp16-1 update kernel --check` (it refuses an inconsistent upstream, see [D4b](#d4b-after-omarchy-update-stock-linux-t2-moves)).
 
 ---
 
@@ -129,7 +157,7 @@ sysctl -n hw.model
 | 16,4 | 16" 2020 + 5600M |
 | 13,x / 14,x | T1 — T1Bridge only |
 
-**Do not** use Asahi, `omarchy-mac-setup`, or Try Omarchy (Apple Silicon). **Do not** install T1Bridge. Official [mac-support](https://omarchy.org/manual/mac-support/) still says full-disk wipe and omits A2141. Omarchy 4 **Free space** is the dual-boot path ([#7666](https://github.com/omacom/omarchy/discussions/7666) on 16,2).
+**Do not** use Asahi, `omarchy-mac-setup`, or Try Omarchy (Apple Silicon). **Do not** install T1Bridge. Official [mac-support](https://omarchy.org/manual/mac-support/) still says full-disk wipe and omits A2141. The installer’s **Free space install** is the dual-boot path ([Dual Boot Install](https://omarchy.org/manual/dual-boot-install/); [#7666](https://github.com/omacom/omarchy/discussions/7666) on 16,2).
 
 Randy ([novuon/mbp2019-omarchy](https://github.com/novuon/mbp2019-omarchy)) is GPU + DPM `low` + Touch Bar. Sleep here is yuters **`e77b03f`**, not Randy 06, not yuters `main`. Touch ID is [jean-humann `mbp161-mixed-envelope`](https://github.com/jean-humann/t2-touchid-linux/tree/mbp161-mixed-envelope).
 
@@ -145,13 +173,14 @@ Human first: **A1 backup**, **A2 Recovery**, **A3 enroll Touch ID**. Then plug t
 ./bin/mbp16-1 macos
 ```
 
-Maps **internal APFS** and **two USB whole disks** first (not a keyboard, not `disk0` — TTY, seconds), then **shrink** (if the hole is short) → **export** keybags **and this toolbox** onto the **private** stick → download pinned Omarchy **4.0.3** → `dd` the **installer**. Those long jobs stay **serial** on the internal SSD (shrink relocates the volume that holds `/Users` and the ISO cache). `--yes` skips confirm waits, not the T2/USB/Touch ID checks, and still needs `--container diskNsM --installer diskN --private diskM`. Type each identifier to confirm. `--iso PATH` skips the download. `--dry-run` prints actions.
+Maps **internal APFS** and **two USB whole disks** first (not a keyboard, not `disk0` — TTY, seconds), then **reclaim** (reinstall: delete the old Linux partitions, typed id each) → **shrink** (if the hole is short) → **export** keybags **and this toolbox** onto the **private** stick → download pinned Omarchy **4.5.0** → `dd` the **installer**. Those long jobs stay **serial** on the internal SSD (shrink relocates the volume that holds `/Users` and the ISO cache). `--yes` skips confirm waits, not the T2/USB/Touch ID checks, and still needs `--container diskNsM --installer diskN --private diskM`. Type each identifier to confirm. `--iso PATH` skips the download. `--dry-run` prints actions.
 
 Subcommands (one piece):
 
 ```bash
 ./bin/mbp16-1 macos --installer disk2 --private disk3
 ./bin/mbp16-1 macos sticks          # list only
+./bin/mbp16-1 macos reclaim         # reinstall: delete old OMARCHY_EFI + LUKS root (typed id each)
 ./bin/mbp16-1 macos shrink          # map + limits; add --keep 360g to apply
 ./bin/mbp16-1 macos export          # keybags + toolbox onto --private
 ./bin/mbp16-1 macos flash           # ISO + dd installer (needs --installer and --private)
@@ -164,7 +193,7 @@ Need **two USB disks**, not a keyboard. A wired USB keyboard is a third device a
 
 | Stick | Role |
 | --- | --- |
-| **Installer** (`--installer`) | **≥8 GB.** Omarchy ISO (~6.3 GB) is `dd`’d here. **Erases all data** on that stick (every partition, every file). Orange EFI afterward. |
+| **Installer** (`--installer`) | **≥8 GB.** Omarchy 4.5.0 ISO (~6.5 GB) is `dd`’d here. **Erases all data** on that stick (every partition, every file). Orange EFI afterward. |
 | **Private** (`--private`) | ExFAT `KEYBAGS`: `t2-touchid-export/` (keybags + catacomb), `omarchi-dbi-mac-16-1/` (this toolbox), `START-HERE.txt`. Never gist the tars. Never the installer disk. **Not** wiped by the ISO flash. |
 
 `macos` refuses the same disk for both roles, refuses internal/non-USB, refuses an installer smaller than the ISO, and will not write tars or the toolbox onto the installer volume. You must confirm the installer identifier. If the private stick has no filesystem, it asks to erase **that disk only** as ExFAT `KEYBAGS`.
@@ -192,7 +221,7 @@ Human only (finger on the sensor). `macos` cannot enroll prints. System Settings
 
 ### A4. Shrink APFS — unallocated space
 
-**Do not** create a Linux partition in Disk Utility. The installer wants a **hole on the partition map**.
+**Do not** create a Linux partition in Disk Utility. The installer wants a **hole on the partition map**. Reinstalling? Run `macos reclaim` first (part of `macos`): deleting the old Linux partitions gives the hole back.
 
 Included in `mbp16-1 macos` **after** the TTY maps, **before** export/ISO: it **maps** the internal APFS physical store (usually `disk0s2` on this model — never a USB stick, never whole `disk0`), reads `resizeContainer limits`, and shrinks if the hole is short. Do not download the ISO or walk keybags while that relocate is running.
 
@@ -248,9 +277,9 @@ Administrator password required. The upstream catacomb helper’s default **free
 
 ## 3. Phase B — write the stick and install
 
-### B0. Write Omarchy 4 to USB
+### B0. Write Omarchy 4.5 to USB
 
-`mbp16-1 macos` already downloaded pinned **4.0.3** (`SHA256 03d60bc74306dca51f96e1a84b690871d8d606826b260edd0208962da8507d14`) from `https://iso.omarchy.org/omarchy-4.0.3.iso` and flashed the **installer** disk. Re-flash only:
+`mbp16-1 macos` already downloaded pinned **4.5.0** (`SHA256 5d6288bc57f96f6231719830457582c846a2291985201c36a9a7d1216978b00f`, 6 540 910 592 bytes) from `https://iso.omarchy.org/omarchy-4.5.0-x86.iso` and flashed the **installer** disk. From 4.5 the file name carries the architecture. Fallback: `MBP16_1_OMARCHY_ISO_VERSION=4.0.3` (`omarchy-4.0.3.iso`, `SHA256 03d60bc74306dca51f96e1a84b690871d8d606826b260edd0208962da8507d14`). Another version needs `MBP16_1_OMARCHY_ISO_SHA256` (+ `_BYTES`) from `iso.omarchy.org/<iso>.sha256`. Re-flash only:
 
 ```bash
 ./bin/mbp16-1 macos flash --installer diskN --private diskM
@@ -272,22 +301,25 @@ sudo dd if=omarchy.iso of=/dev/rdiskN bs=4m
 
 Plug the stick **and** a **USB keyboard** into the **16,1** (keyboard on the Mac, not only a dock).
 
-**Do not** choose entire disk (destroys macOS / SEP recovery). **Do not** reuse Apple’s ~300 MB EFI as `/boot`.
+**Do not** choose **Full disk install** (destroys macOS / SEP recovery). Apple’s ~300 MB EFI is never offered: 4.5 always creates its own ESP.
 
 ### B1. Boot
 
 Shut down. Power on, hold **Option (⌥)**. Pick **orange EFI Boot**. If nothing orange: A2 was skipped, or wrong ISO.
 
-Installer UI is typically **10–20 minutes** after you confirm the disk.
+Installer UI is typically **10–20 minutes** after you confirm the disk. On 4.5 the stick boots the T2 kernel automatically on Macs.
 
 ### B2. Installer choices
 
 | Prompt | Choice |
 | --- | --- |
-| Disk | **Free space**. Not APFS. Not entire disk |
-| LUKS | Default on is fine |
-| Bootloader | New **2 GiB `OMARCHY_EFI`** |
-| User | Remember Linux password; Touch ID sudo later also needs the **macOS** password |
+| Disk | The internal SSD, then **Free space install (alongside existing data)**. **Not** “Full disk install” (listed **first**, wipes macOS). Leave the partition tool (cfdisk) alone |
+| Free space | ≥32 GB unallocated after the APFS container (`macos` aims for 80 GB) |
+| LUKS | Default on. **Write the passphrase down**: losing it means a reinstall |
+| Bootloader | Automatic: a new **2 GiB `OMARCHY_EFI`** in the hole (source: `omarchy-iso` `configurator`). Never Apple’s EFI |
+| User | Remember the Linux password (autologin after LUKS hides it); Touch ID sudo later also needs the **macOS** password |
+
+After install, Limine 4.5 is quiet: menu hidden, default entry after 1 s. Tap any key as soon as Limine starts to see the menu; **e** edits an entry. Until `setup` builds the sleep kernel, the default is stock `linux-t2` (the 4.5 ISO writes that `BOOT_ORDER`).
 
 The installer pulls `linux-t2`, T2 audio, Broadcom firmware, `t2fanrd`, in-tree Touch Bar. It does **not** configure hybrid gmux. That is Phase C.
 
@@ -389,13 +421,12 @@ sudo limine-update
 
 Names must be **colon-free**. A PCI `by-path` never opens AMD.
 
-Hide Hybrid GPU (`~/.config/omarchy/extensions/omarchy-menu.jsonc`):
+Hide Hybrid GPU (`~/.config/omarchy/extensions/omarchy-menu.jsonc`). Omarchy 4.0 had one key. **4.5 adds `hybrid-gpu-on` / `hybrid-gpu-off`** and shows them whenever two GPUs are present, which is always the case here. `apply gpu` adds the missing keys to an existing file; `doctor` fails if one is missing.
 
 ```jsonc
-"trigger.hardware.hybrid-gpu": {
-  "when": "false",
-  "description": "Hidden on this T2 16,1. Do not run omarchy toggle hybrid gpu."
-}
+"trigger.hardware.hybrid-gpu": { "when": "false" },
+"trigger.hardware.hybrid-gpu-on": { "when": "false" },
+"trigger.hardware.hybrid-gpu-off": { "when": "false" }
 ```
 
 Brightness keys write **`gmux_backlight`**, not `appletb_backlight`. No ALS daemon (IIO `als` exists, unused). Idle DPMS and Hyprland `cm_auto_hdr=1` can look like auto-brightness. Omarchy idle is stock (screensaver 150 s, lock 300 s). Night light: Super+Ctrl+N.
@@ -614,7 +645,7 @@ Optional still-config-1 media-strip: [Randy 09](https://github.com/novuon/mbp201
 
 The [Easy path](#easy-path) `setup` already writes D1–D3 and runs `apply kernel --build`. Use the `apply sleep` / `apply kernel` **subcommands** below for a rerun.
 
-Stock Omarchy 4 wants `deep`. This 16,1 wants **s2idle**. Stock `linux-t2` **cannot** resume the 5500M SMU while `amdgpu` is bound (**SMU `-62`**). Sleep is a **second** kernel beside stock.
+Stock Omarchy wants `deep` (the 4.5 `fix-t2.sh` writes `mem_sleep_default=deep` into `t2-mac.conf`; `apply sleep` overwrites it). This 16,1 wants **s2idle**. Stock `linux-t2` **cannot** resume the 5500M SMU while `amdgpu` is bound (**SMU `-62`**). Sleep is a **second** kernel beside stock.
 
 **Do not** replace `linux-t2`. **Do not** run yuters `install.sh` or current **`main`**. **Do not** leave `mem_sleep_default=deep`. **Do not** `rmmod brcmfmac` (BCM4377 hack). **Do not** unload `t2bce` / `t2_sep_transport`. After SMU `-62`, **do not suspend again**.
 
@@ -626,7 +657,7 @@ If you already ran `setup` or `apply desktop`, D1–D3 files are in place. Still
 ./bin/mbp16-1 apply sleep
 ```
 
-Writes Limine drop-ins, logind lid (`HandleLidSwitch=suspend` undocked), systemd `MemorySleepMode=s2idle`, `usbcore autosuspend=-1`, and **`mbp16-1-lock-rearm.service`** (`sleep.target` ExecStop: `try-restart fprintd`, not the T2 transport). Then **mkinitcpio + limine-update (1–3 min)**, then `mbp16-1-limine-quiet` (`timeout: 1`, `quiet: yes`). Re-run that helper after **`omarchy update`** or `omarchy refresh limine` (both rewrite `/boot/limine.conf`). Do not use `timeout: 0`.
+Writes Limine drop-ins, logind lid (`HandleLidSwitch=suspend` undocked), systemd `MemorySleepMode=s2idle`, `usbcore autosuspend=-1`, and **`mbp16-1-lock-rearm.service`** (`sleep.target` ExecStop: `try-restart fprintd`, not the T2 transport). Then **mkinitcpio + limine-update (1–3 min)**, then `mbp16-1-limine-quiet` (`timeout: 1`, `quiet: yes` — 4.5 ships that already; the helper re-asserts it). Re-run that helper after **`omarchy update`** or `omarchy refresh limine` (both rewrite `/boot/limine.conf`). Do not use `timeout: 0`.
 
 **Do not suspend and do not close the lid** until `linux-t2-mbp161` is running. After D1, a lid close is a real suspend; stock `linux-t2` can SMU **`-62`**.
 
@@ -666,7 +697,7 @@ cat /sys/power/mem_sleep
 # [s2idle] deep     ← s2idle selected
 ```
 
-`apply sleep` skips Limine `BOOT_ORDER` until `linux-t2-mbp161` is installed; `apply kernel --build` writes it.
+`apply sleep` skips Limine `BOOT_ORDER` until `linux-t2-mbp161` is installed; then it (and `apply kernel --build`) writes it in both places, see [D4](#d4-apply-kernel---build).
 
 ### D2. apply wifi
 
@@ -721,7 +752,7 @@ First `makepkg` on this 8-core 16,1: typically **45–90 minutes**. Plugged in. 
 | Intel-primary | yuters **`e77b03f` `0001`–`0005`** after t2linux |
 | This kernel only | `CONFIG_RUST` **off**, `pkgbase=linux-t2-mbp161`, does **not** `provides=(linux)` |
 
-This pack **vendors** one linux-t2-arch snapshot for the first install (`apply kernel --build`). That snapshot may be older than the recovery `linux-t2` already on the box — expected. After the first boot onto mbp161, `doctor` Kernel notes behind → `update kernel`. Do not pin the running `uname -r` string in scripts — it changes on every rebase (`…-Watanare-T2-<pkgrel>-t2-mbp161`).
+This pack **vendors** one linux-t2-arch snapshot for the first install (`apply kernel --build`): **`7.2.3.arch1-1`**, t2linux `1ed4126` (`KVER=7.2.3`). Checked 2026-11-08 in an Arch container: `makepkg --nobuild` → every t2linux patch and yuters `0001`–`0005` apply, `Prepared … 7.2.3-arch1-Watanare-T2-1-t2-mbp161`. That snapshot may be older than the recovery `linux-t2` already on the box — expected. After the first boot onto mbp161, `doctor` Kernel notes behind → `update kernel`. Do not pin the running `uname -r` string in scripts — it changes on every rebase (`…-Watanare-T2-<pkgrel>-t2-mbp161`).
 
 | Patch | Role |
 | --- | --- |
@@ -737,10 +768,22 @@ This pack **vendors** one linux-t2-arch snapshot for the first install (`apply k
 # hand: cd ~/src/linux-t2-mbp161 && makepkg -si && sudo limine-update && mbp16-1-limine-quiet
 ```
 
-`--build` also writes `/etc/limine-entry-tool.d/zz-mbp16-1-boot-order.conf`, runs `limine-update` (1–3 min), then `mbp16-1-limine-quiet` (`timeout: 1`, `quiet: yes` — `limine-update` would otherwise restore the menu):
+`--build` (and `apply sleep`, once the package exists) makes `linux-t2-mbp161` the Limine default, runs `limine-update` (1–3 min), then `mbp16-1-limine-quiet`:
 
 ```bash
 BOOT_ORDER="linux-t2-mbp161, linux-t2, *fallback, Snapshots"
+```
+
+**Two places, because of Omarchy 4.5.** limine-entry-tool reads `/usr/share/limine-entry-tool.d/*.conf`, `/etc/limine-entry-tool.conf`, `/etc/limine-entry-tool.d/*.conf`, then **`/etc/default/limine` last**. The last `BOOT_ORDER` wins.
+
+1. `/etc/limine-entry-tool.d/zz-mbp16-1-boot-order.conf` — enough on 4.0.x.
+2. `/etc/default/limine` — on T2 Macs the **4.5 ISO writes `BOOT_ORDER="linux-t2, linux-t2-*, *, *fallback, Snapshots"`** here. That silently overrides (1), and you would keep booting stock `linux-t2` (and SMU `-62` on the first suspend). The toolbox replaces that line, keeping a backup; it never just deletes it.
+
+`doctor` → Kernel prints `Limine default linux-t2-mbp161`, or fails with the next step. To fix by hand:
+
+```bash
+sudo sed -i -E 's|^[[:space:]]*BOOT_ORDER[[:space:]]*=.*|BOOT_ORDER="linux-t2-mbp161, linux-t2, *fallback, Snapshots"|' /etc/default/limine
+sudo limine-update
 ```
 
 Do **not** run [yuters `install.sh`](https://github.com/yuters/mbp161-hybrid-graphics) (PCI `by-path` Aqua). Do not use current **`main`** (Falcon / panel-on-AMD / DPM `auto`).
@@ -770,6 +813,14 @@ Then, if doctor Kernel notes behind:
 
 If a yuters patch **rejects** on the new t2linux base, stop. Those five patches need a refresh. Do **not** switch to yuters `main`.
 
+**Upstream consistency guard.** `update kernel` reads the t2linux patch set’s own `version` file (at linux-t2-arch’s `T2_PATCH_HASH`). If its major.minor differs from linux-t2-arch’s `pkgver`, it stops **before** touching `kernel/`; `--check` reports it.
+
+- **As of 2026-11-08 the guard fires.** linux-t2-arch `main` is `7.2.14.arch1-1`, but it pins t2linux `777f516` (`KVER=7.3`).
+- `7001-drm-i915-fbdev-…` then rejects in `prepare()`, and upstream’s own `main` build failed too ([PR #301](https://github.com/NoaHimesaka1873/linux-t2-arch/pull/301) is pending).
+- Stay on the vendored `7.2.3.arch1-1` and re-run `--check` later.
+
+Also, t2linux dropped `6001` on 2026-10-15: it pinned the **Radeon Pro 5300M** (subsystem `106b:0219`) at 300 MHz. The vendored 7.2.3 still carries it. That is irrelevant on a 5500M driven Intel-first like here. On a 5300M, wait for the next consistent upstream.
+
 ### D5. Reboot onto linux-t2-mbp161 and prove s2idle
 
 Reboot **unplugged**. Daily default is `linux-t2-mbp161`. Pick stock `linux-t2` only for recovery.
@@ -777,6 +828,7 @@ Reboot **unplugged**. Daily default is `linux-t2-mbp161`. Pick stock `linux-t2` 
 ```bash
 uname -r
 # ends with -t2-mbp161  (the prefix is the linux-t2 version you built)
+# if it ends with -t2 instead: doctor → "Limine default", see D4 (4.5 BOOT_ORDER)
 
 cat /sys/power/mem_sleep
 # [s2idle] deep
@@ -865,6 +917,27 @@ A second **sudo** / **pkexec** while another is already on the sensor waits (up 
 
 After **lid-close s2idle**, user.slice was frozen so fingerprint PAM / fprintd VerifyFinger can be stuck while the lock still looks secure. Omarchy’s `lock lock` IPC is a no-op when already locked, so it cannot reset PAM. `mbp16-1-lock-rearm.service` runs on `sleep.target` stop (after thaw, not from a frozen `system-sleep` hook): `systemctl try-restart fprintd` (not the T2 transport) so lock PAM errors and retries, then warms `fprintd-list`. First finger press after wake is ACPI only if you used the Touch ID key to wake — open the lid, wait for the fingerprint square, then place the finger. Do not unload transport.
 
+### E1. Touch ID without macOS?
+
+Status on 2026-11-08: **not with dual-boot**. **Possible single-boot**, with a different stack, at proof-of-concept risk.
+
+| Stack | Needs macOS | Enroll from Linux | Dual-boot | On this 16,1 |
+| --- | --- | --- | --- | --- |
+| This toolbox → [jean-humann `mbp161-mixed-envelope`](https://github.com/jean-humann/t2-touchid-linux/tree/mbp161-mixed-envelope) | **Yes**: prints enrolled in macOS, exported keybags + Catacomb, macOS password once per boot (`t2-keybag-unlock`) | Research only, default off. A macOS boot dropped the Linux-only identity; cross-OS Catacomb sync is unchecked in `ROADMAP.md` | Yes (built for it) | Daily here |
+| [t2linux / KaiT2en](https://wiki.t2linux.org/guides/touchid/) | **Yes**: only macOS-enrolled fingers; macOS login after a force shutdown or panic | No | Yes | Ubuntu/Debian only |
+| [macintog/t2touch](https://github.com/macintog/t2touch) | **No**: Linux-owned SEP identity, random credential via `systemd-creds` | Yes (fprintd) | **No.** The installer refuses when APFS/HFS+ is present. On their 16,1, macOS later removed the Touch ID prints and replaced the keybag + login keychain ([#16](https://github.com/macintog/t2touch/issues/16)) | Proof of concept. The reference model **is** a 16,1 on bridgeOS `23P6068` |
+| Omarchy Setup → Fingerprint | — | — | — | Apple Silicon (`/dev/sep-bio`) only. Do not use on T2 |
+
+Keep macOS (this guide) and you keep Touch ID enrolled in macOS. Drop macOS entirely and t2touch is the only credible path. That means a **single-boot** install, **not this dual-boot recipe**.
+
+1. **While macOS still runs, update it fully.** bridgeOS updates only arrive through macOS. t2touch works on `23P6068` (bridgeOS 10.6). A 16,1 on `22P6083` (9.6) fails identity creation with SEP `-13` and has no recovery path ([#23](https://github.com/macintog/t2touch/issues/23), Omarchy, same `Watanare-T2` kernel family). See the T2 firmware with `system_profiler SPiBridgeDataType`.
+2. The T2 needs its internal **xART** volume. macOS provisioning creates it; a DFU Revive did not on their reference Mac (`linux_native/BRIDGEOS_DIAGNOSTICS.md`). A Mac that has run macOS with Touch ID should have it. Do not DFU-restore the T2 afterwards.
+3. Save what lives in the macOS login keychain (passwords, certificates).
+4. Installer: **Full disk install**, the official [mac-support](https://omarchy.org/manual/mac-support/) path. Wi-Fi/Bluetooth firmware comes from the Omarchy ISO, not from macOS.
+5. The toolbox: `setup` (GPU, display, sleep kernel) still applies. `macos flash` writes the stick (it still wants a second stick as `--private`, as a guard). **Do not** run `apply touchid` or `macos export`: the jean-humann module has the same name, `t2_sep_transport`, and only one stack can own the SEP per boot.
+6. Install t2touch from its README (`./install-omarchy.sh`). It builds a DKMS module against the running kernel’s headers (`linux-t2-mbp161-headers`; **untested with this kernel**). It may stage an `applesmc-t2touch` DKMS module that writes SMC boot-state keys; one user needed an SMC reset (#22).
+7. Limits: everything runs as root, plus a kernel module that DMAs to the SEP. A cold reset can mean enrolling again. Keep password auth. macOS is then gone as SEP recovery; Internet Recovery can reinstall it, but t2touch must not coexist with it.
+
 ---
 
 ## 7. Order of operations
@@ -873,8 +946,8 @@ The [Easy path](#easy-path) is the order (`macos` → Option-boot **Free space**
 
 1. Confirm `MacBookPro16,1` (`macos` / `setup` refuse otherwise).
 2. **A** Backup; Recovery No Security + external media (**set** in Recovery; `macos` checks and asks if unread); enroll Touch ID; `macos`.
-3. **B** Option → orange EFI → **Free space**.
-4. **Linux:** `mbp16-1 setup` from KEYBAGS (if the lid is black: Limine blacklist once, setup, reboot without it, setup again).
+3. **B** Option → orange EFI → **Free space install (alongside existing data)**.
+4. **Linux:** `mbp16-1 setup` from KEYBAGS (if the lid is black: Limine blacklist once, setup, reboot without it, setup again). `doctor` → `Limine default linux-t2-mbp161`.
 5. Reboot unplugged onto **`linux-t2-mbp161`**. Two lid-only + one attached s2idle. Not on stock.
 6. **E** `apply touchid` (refuses until daily kernel / DPM low / NCM), then catacomb from `t2-touchid-export/`. Not Omarchy Fingerprint.
 
@@ -883,6 +956,8 @@ The [Easy path](#easy-path) is the order (`macos` → Option-boot **Free space**
 ---
 
 ## 8. If Linux is wiped later
+
+Forgot the password / reinstall: [Reinstall (forgot the password)](#reinstall-forgot-the-password) — `macos reclaim` first, then the same flow.
 
 macOS remains SEP recovery. Reinstalling Omarchy means re-exporting keybags if `/var/lib/t2-touchid` is gone. A macOS reinstall can change fingerprints; export again. Re-apply Phase C onward (Randy / Hyprland / kernel files are not in the Omarchy ISO).
 
@@ -900,7 +975,7 @@ macOS remains SEP recovery. Reinstalling Omarchy means re-exporting keybags if `
 | `/etc/udev/rules.d/71-amd-dgpu.rules` | `/dev/dri/amd-dgpu` |
 | `/etc/udev/rules.d/90-omarchy-gmux-backlight.rules` | lid brightness |
 | `~/.config/uwsm/env-hyprland` | Aqua Intel then AMD |
-| `~/.config/omarchy/extensions/omarchy-menu.jsonc` | hide Hybrid GPU |
+| `~/.config/omarchy/extensions/omarchy-menu.jsonc` | hide Hybrid GPU (`hybrid-gpu`, 4.5 `hybrid-gpu-on` / `-off`) |
 | `~/.config/hypr/monitors.lua` | lid / external by `desc:` (generated) |
 | `~/.config/hypr/looknfeel.lua` | software cursors (prepend) |
 | `~/.config/hypr/autostart.lua` | `hypr-outputs --watch` (append) |
@@ -916,9 +991,10 @@ macOS remains SEP recovery. Reinstalling Omarchy means re-exporting keybags if `
 | `/etc/t2fand.conf` | linear 40–85 |
 | `/etc/mbp16-1-powerd.conf` | Super envelopes |
 | `/etc/systemd/system/mbp16-1-powerd.service` | occupancy + skin RAPL/EPP |
-| `/etc/limine-entry-tool.d/t2-mac.conf` | IOMMU, **no** `deep` |
+| `/etc/limine-entry-tool.d/t2-mac.conf` | IOMMU, **no** `deep` (overwrites the 4.5 `fix-t2.sh` one) |
 | `/etc/limine-entry-tool.d/00-mbp16-1-sleep.conf` | `s2idle` last (**generated** by `apply sleep`, not copied from `files/`) |
 | `/etc/limine-entry-tool.d/zz-mbp16-1-boot-order.conf` | mbp161 first (after kernel package exists) |
+| `/etc/default/limine` | `BOOT_ORDER` line replaced (4.5 ISO puts `linux-t2` first; read last, so it wins) |
 | `/etc/systemd/logind.conf.d/30-mbp16-1-lid.conf` | undocked suspend / docked ignore |
 | `/etc/systemd/sleep.conf.d/90-mbp16-1-s2idle.conf` | `MemorySleepMode=s2idle` |
 | `mbp2019-amdgpu-power-prep.service` | DPM `low` |
@@ -951,10 +1027,12 @@ Optional extras, not this recipe. Dangerous substitutes are called out in the ph
 
 | | |
 | --- | --- |
-| Dual-boot | Omarchy 4 Free space; [mac-support](https://omarchy.org/manual/mac-support/) (stale wipe); [#7666](https://github.com/omacom/omarchy/discussions/7666) |
+| Dual-boot | [Dual Boot Install](https://omarchy.org/manual/dual-boot-install/) (Free space install); [mac-support](https://omarchy.org/manual/mac-support/) (still wipe); [#7666](https://github.com/omacom/omarchy/discussions/7666); [Omarchy 4.5](https://omarchy.org/news/2026/11/omarchy-4-5/); [omarchy-iso `configurator`](https://github.com/omacom/omarchy-iso/blob/master/configs/airootfs/root/configurator) (own 2 GiB ESP) |
 | Randy | [novuon/mbp2019-omarchy](https://github.com/novuon/mbp2019-omarchy) 01 / 02 / 09. 03–08 stubs |
 | t2linux | [hybrid-graphics](https://wiki.t2linux.org/guides/hybrid-graphics/), [postinstall](https://wiki.t2linux.org/guides/postinstall/), [Wi-Fi](https://wiki.t2linux.org/guides/wifi-bluetooth/) |
 | USB-C same model | [Dan Wahlin](https://blog.codewithdan.com/how-i-cut-gpu-power-from-18-w-to-4-w-on-an-omarchy-macbook-pro-with-github-copilot-cli/) |
 | Lid names | [sk3pper](https://sk3pper.github.io/posts/workstation-setup/lid-close-freeze-on-t2-mbp19/); [omarchy#7855](https://github.com/omacom/omarchy/discussions/7855) |
-| Sleep kernel | [yuters `e77b03f`](https://github.com/yuters/mbp161-hybrid-graphics/blob/e77b03fe0902216a7544208f2988b4cd391423a1/kernel/README.md). Not [`main`](https://github.com/yuters/mbp161-hybrid-graphics). [yuters#1](https://github.com/yuters/mbp161-hybrid-graphics/issues/1) |
+| Kernel upstream | [linux-t2-arch](https://github.com/NoaHimesaka1873/linux-t2-arch) `main` `7.2.14.arch1-1` pins [t2linux patches](https://github.com/t2linux/linux-t2-patches) `KVER=7.3` ([#301](https://github.com/NoaHimesaka1873/linux-t2-arch/pull/301)) |
+| Sleep kernel | [yuters `e77b03f`](https://github.com/yuters/mbp161-hybrid-graphics/blob/e77b03fe0902216a7544208f2988b4cd391423a1/kernel/README.md). Not [`main`](https://github.com/yuters/mbp161-hybrid-graphics) (since `e77b03f`: Falcon SMC, `cdc_ncm` S3, hibernation, 4K@60 adapter, t2bce S4 — still not used here). [yuters#1](https://github.com/yuters/mbp161-hybrid-graphics/issues/1) |
 | Touch ID | [jean-humann `mbp161-mixed-envelope`](https://github.com/jean-humann/t2-touchid-linux/tree/mbp161-mixed-envelope); [`docs/PAM_AUTH.md`](https://github.com/jean-humann/t2-touchid-linux/blob/mbp161-mixed-envelope/docs/PAM_AUTH.md) |
+| Touch ID, other stacks | [t2linux Touch ID](https://wiki.t2linux.org/guides/touchid/) (KaiT2en, Ubuntu/Debian, macOS-enrolled fingers); [macintog/t2touch](https://github.com/macintog/t2touch) (Linux-only, no macOS: [#16](https://github.com/macintog/t2touch/issues/16), [#23](https://github.com/macintog/t2touch/issues/23)) |

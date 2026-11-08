@@ -55,8 +55,8 @@ mbp16_1_doctor() {
     step 1 "Recovery (Command-R) → Startup Security Utility" "No Security + allow external media if the check above is red or unread"
     step 2 "Enroll Touch ID, note id -u"
     step 3 "Plug two USB sticks" "installer ≥8 GB (fully erased) vs private keybags + toolbox — not the keyboard"
-    step 4 "mbp16-1 macos" "map APFS + USB (TTY), then shrink → export (keybags + toolbox) → ISO → flash"
-    step 5 "Shut down ~30 s, Option-boot orange EFI" "installer disk = Free space (keep macOS)"
+    step 4 "mbp16-1 macos" "map APFS + USB (TTY), reclaim old Linux partitions, then shrink → export (keybags + toolbox) → ISO → flash"
+    step 5 "Shut down ~30 s, Option-boot orange EFI" "installer: Free space install (alongside existing data) — keep macOS"
     ui_summary
     return "$rc"
   fi
@@ -106,7 +106,7 @@ mbp16_1_doctor() {
   grep -q 'force_igd=1' /etc/modprobe.d/apple-gmux.conf 2>/dev/null && gmux=1
   [[ -e /dev/dri/intel-igpu && -e /dev/dri/amd-dgpu ]] && drm=1
   [[ $aqua == /dev/dri/intel-igpu:/dev/dri/amd-dgpu ]] && aqua_ok=1
-  file_has "$HOME/.config/omarchy/extensions/omarchy-menu.jsonc" 'trigger.hardware.hybrid-gpu' && hybrid=1
+  hybrid_gpu_hidden && hybrid=1
   if ((gmux && drm && aqua_ok && hybrid)); then
     ok "gmux IGD  ·  intel-igpu:amd-dgpu  ·  Aqua Intel then AMD  ·  Hybrid GPU hidden"
   else
@@ -115,7 +115,7 @@ mbp16_1_doctor() {
     ((aqua_ok)) && ok "Aqua Intel then AMD" || \
       _doc_fail "Aqua is ${aqua:-unset}" "mbp16-1 setup" "mbp16-1 setup"
     ((hybrid)) && ok "Hybrid GPU hidden" || \
-      _doc_fail "Hybrid GPU still visible" "mbp16-1 setup" "mbp16-1 setup"
+      _doc_fail "Hybrid GPU still visible" "4.5 adds hybrid-gpu-on/-off — mbp16-1 apply gpu" "mbp16-1 apply gpu"
   fi
 
   # ── Display: lid pin, phantom eDP, cursors
@@ -138,6 +138,17 @@ mbp16_1_doctor() {
 
   section "Kernel" "Daily ${KERNEL_PKGBASE}. Recovery ${KERNEL_STOCK} — do not suspend on it."
   kernel_report_versions || rc=1
+  if pacman -Q "$KERNEL_PKGBASE" >/dev/null 2>&1; then
+    local first_boot
+    first_boot=$(limine_first_boot_kernel)
+    if kernel_boot_order_ok; then
+      ok "Limine default ${KERNEL_PKGBASE}"
+    else
+      _doc_fail "Limine default is ${first_boot:-unset}" \
+        "last BOOT_ORDER wins; /etc/default/limine beats drop-ins (4.5 ISO writes linux-t2 there) — mbp16-1 apply sleep" \
+        "mbp16-1 apply sleep"
+    fi
+  fi
 
   # ── Sleep: live state, then files
   section "Sleep" "s2idle only. After SMU -62, do not suspend again."
@@ -189,7 +200,7 @@ mbp16_1_doctor() {
     if grep -q '^timeout: 1' /boot/limine.conf && grep -q '^quiet: yes' /boot/limine.conf; then
       : # quiet is fine; do not spend a row
     else
-      info "Limine menu not quieted" "mbp16-1-limine-quiet  (after omarchy refresh limine)"
+      info "Limine menu not quieted" "mbp16-1-limine-quiet  (4.5 ships timeout 1 + quiet; refresh limine may differ)"
     fi
   fi
 

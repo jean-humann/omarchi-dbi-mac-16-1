@@ -44,8 +44,8 @@ def items(body: str) -> list[str]:
 
 
 def format_array(name: str, vals: list[str]) -> str:
-    inner = "\n".join(f"  {v}" for v in vals)
-    return f"{name}=({inner})"
+    pad = "\n" + " " * (len(name) + 2)
+    return f"{name}=({pad.join(vals)})"
 
 
 def replace_arrays(dest: str, upstream: str) -> str:

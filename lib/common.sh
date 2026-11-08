@@ -8,12 +8,36 @@ KERNEL_DIR="$ROOT/kernel"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/mbp16-1"
 BACKUP_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/mbp16-1/backups"
 
-# Pinned installer ISO (proven on this 16,1). Override with MBP16_1_OMARCHY_ISO_*.
-OMARCHY_ISO_VERSION="${MBP16_1_OMARCHY_ISO_VERSION:-4.0.3}"
-OMARCHY_ISO_URL="${MBP16_1_OMARCHY_ISO_URL:-https://iso.omarchy.org/omarchy-${OMARCHY_ISO_VERSION}.iso}"
-OMARCHY_ISO_SHA256="${MBP16_1_OMARCHY_ISO_SHA256:-03d60bc74306dca51f96e1a84b690871d8d606826b260edd0208962da8507d14}"
-# 4.0.3 content-length. Stick must be at least this; ask for 8 GB advertised.
-OMARCHY_ISO_BYTES="${MBP16_1_OMARCHY_ISO_BYTES:-6260654080}"
+# Pinned installer ISO. Override with MBP16_1_OMARCHY_ISO_*.
+# 4.5.0 "Quattro RS" (2026-11-05) is the default; 4.0.3 (the first install on
+# this 16,1) stays pinned as the fallback: MBP16_1_OMARCHY_ISO_VERSION=4.0.3.
+OMARCHY_ISO_VERSION="${MBP16_1_OMARCHY_ISO_VERSION:-4.5.0}"
+case $OMARCHY_ISO_VERSION in
+  4.5.0)
+    _iso_sha=5d6288bc57f96f6231719830457582c846a2291985201c36a9a7d1216978b00f
+    _iso_bytes=6540910592
+    ;;
+  4.0.3)
+    _iso_sha=03d60bc74306dca51f96e1a84b690871d8d606826b260edd0208962da8507d14
+    _iso_bytes=6260654080
+    ;;
+  *)
+    # Unknown version: pass MBP16_1_OMARCHY_ISO_SHA256 (and _BYTES) yourself.
+    _iso_sha=
+    _iso_bytes=6540910592
+    ;;
+esac
+# From 4.5 the file name carries the architecture (omarchy-4.5.0-x86.iso);
+# 4.0–4.4 had none. The old pattern 404s for 4.5.
+case $OMARCHY_ISO_VERSION in
+  [0-3].* | 4.[0-4].*) _iso_file="omarchy-${OMARCHY_ISO_VERSION}.iso" ;;
+  *) _iso_file="omarchy-${OMARCHY_ISO_VERSION}-x86.iso" ;;
+esac
+OMARCHY_ISO_URL="${MBP16_1_OMARCHY_ISO_URL:-https://iso.omarchy.org/${_iso_file}}"
+OMARCHY_ISO_SHA256="${MBP16_1_OMARCHY_ISO_SHA256:-$_iso_sha}"
+# ISO content-length. Stick must be at least this; ask for 8 GB advertised.
+OMARCHY_ISO_BYTES="${MBP16_1_OMARCHY_ISO_BYTES:-$_iso_bytes}"
+unset _iso_sha _iso_bytes _iso_file
 OMARCHY_FREE_MIN_BYTES="${MBP16_1_OMARCHY_FREE_MIN_BYTES:-32000000000}"
 OMARCHY_FREE_WANT_BYTES="${MBP16_1_OMARCHY_FREE_WANT_BYTES:-80000000000}"
 PACK_NAME="${MBP16_1_PACK_NAME:-omarchi-dbi-mac-16-1}"
@@ -41,6 +65,13 @@ KERNEL_STOCK=linux-t2
 KERNEL_UPSTREAM_REPO="${MBP16_1_T2_ARCH_REPO:-https://github.com/NoaHimesaka1873/linux-t2-arch.git}"
 KERNEL_UPSTREAM_BRANCH="${MBP16_1_T2_ARCH_BRANCH:-main}"
 KERNEL_YUTERS_REF=e77b03f
+# Limine default order. limine-entry-tool reads /usr/share/limine-entry-tool.d,
+# /etc/limine-entry-tool.conf, /etc/limine-entry-tool.d/*.conf, then
+# /etc/default/limine — the LAST BOOT_ORDER wins. The 4.5 ISO writes
+# BOOT_ORDER="linux-t2, linux-t2-*, ..." into /etc/default/limine, which beats
+# our zz- drop-in, so both places must carry this line.
+KERNEL_BOOT_ORDER="${KERNEL_PKGBASE}, ${KERNEL_STOCK}, *fallback, Snapshots"
+LIMINE_DEFAULT_CONF="${MBP16_1_LIMINE_DEFAULT_CONF:-/etc/default/limine}"
 
 UI_OK=0
 UI_FAIL=0
@@ -164,11 +195,11 @@ ui_next() {
 ui_print_next() {
   ((${#UI_NEXT[@]})) || return 0
   section "Next" "Run in order. Doctor does not change the machine."
-  local i=1 line
-  local -A _ui_next_seen=()
+  # No associative array: macOS /bin/bash is 3.2.
+  local i=1 line seen=$'\n'
   for line in "${UI_NEXT[@]}"; do
-    [[ -n ${_ui_next_seen[$line]+x} ]] && continue
-    _ui_next_seen[$line]=1
+    [[ $seen == *$'\n'"$line"$'\n'* ]] && continue
+    seen+="$line"$'\n'
     step "$i" "$line"
     i=$((i + 1))
   done
@@ -466,4 +497,26 @@ kernel_ver_gt() {
   [[ -n ${1:-} && -n ${2:-} ]] || return 1
   command -v vercmp >/dev/null 2>&1 || return 1
   [[ $(vercmp "$1" "$2") -gt 0 ]]
+}
+
+# Effective Limine BOOT_ORDER (same read order as limine-entry-tool and
+# omarchy-kernel). Prints the value without quotes, or nothing.
+limine_effective_boot_order() {
+  local file value order=
+  for file in /usr/share/limine-entry-tool.d/*.conf /etc/limine-entry-tool.conf \
+    /etc/limine-entry-tool.d/*.conf "$LIMINE_DEFAULT_CONF"; do
+    [[ -r $file ]] || continue
+    value=$(sed -nE "s/^[[:space:]]*BOOT_ORDER[[:space:]]*=[[:space:]]*[\"']?([^\"'#]*)[\"']?[[:space:]]*(#.*)?$/\1/p" "$file" | tail -n 1)
+    [[ -z $value ]] || order=$value
+  done
+  printf '%s\n' "$order"
+}
+
+# First pattern of the effective BOOT_ORDER (linux-t2-mbp161 when correct).
+limine_first_boot_kernel() {
+  local order
+  order=$(limine_effective_boot_order)
+  order=${order%%,*}
+  order=${order#"${order%%[![:space:]]*}"}
+  printf '%s\n' "${order%"${order##*[![:space:]]}"}"
 }

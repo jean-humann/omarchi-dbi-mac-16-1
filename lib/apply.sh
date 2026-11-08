@@ -45,11 +45,27 @@ apply_gpu() {
   fi
 }
 
+# Omarchy 4.0 had one menu key (trigger.hardware.hybrid-gpu). 4.5 shows
+# hybrid-gpu-on / hybrid-gpu-off whenever omarchy-hw-hybrid-gpu sees two GPUs,
+# which is always true here. Hide all three; merge into an existing file.
+HYBRID_GPU_MENU_KEYS=(
+  trigger.hardware.hybrid-gpu
+  trigger.hardware.hybrid-gpu-on
+  trigger.hardware.hybrid-gpu-off
+)
+
+hybrid_gpu_hidden() {
+  local dest="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc" key
+  for key in "${HYBRID_GPU_MENU_KEYS[@]}"; do
+    file_has "$dest" "\"${key}\"" || return 1
+  done
+}
+
 hide_hybrid_gpu() {
   local dest="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
   mkdir -p "$(dirname "$dest")"
-  if file_has "$dest" 'trigger.hardware.hybrid-gpu'; then
-    log "Hybrid GPU already hidden"
+  if hybrid_gpu_hidden; then
+    log "Hybrid GPU already hidden" "${HYBRID_GPU_MENU_KEYS[*]}"
     return 0
   fi
   if [[ ! -f $dest ]]; then
@@ -61,30 +77,32 @@ hide_hybrid_gpu() {
     log "dry-run: merge hybrid-gpu hide into $dest"
     return 0
   fi
-  python3 - "$dest" <<'PY'
+  python3 - "$dest" "${HYBRID_GPU_MENU_KEYS[@]}" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
+keys = sys.argv[2:]
 text = path.read_text()
-needle = '"trigger.hardware.hybrid-gpu"'
-if needle in text:
+missing = [k for k in keys if f'"{k}"' not in text]
+if not missing:
     raise SystemExit(0)
-block = '''
-  "trigger.hardware.hybrid-gpu": {
-    "when": "false",
-    "description": "Hidden on this T2 16,1. Do not run omarchy toggle hybrid gpu."
-  }
-'''
+entry = (
+    '  "{}": {{\n'
+    '    "when": "false",\n'
+    '    "description": "Hidden on this T2 16,1. Do not run omarchy toggle hybrid gpu."\n'
+    '  }}'
+)
+block = ",\n".join(entry.format(k) for k in missing)
 idx = text.rfind("}")
 if idx < 0:
-    path.write_text("{" + block + "}\n")
+    path.write_text("{\n" + block + "\n}\n")
     raise SystemExit(0)
 before = text[:idx].rstrip()
-if before.endswith("}"):
+if not before.endswith("{") and not before.endswith(","):
     before += ","
-path.write_text(before + "\n" + block + text[idx:])
+path.write_text(before + "\n" + block + "\n" + text[idx:])
 PY
-  log "hid Trigger → Hybrid GPU in $dest"
+  log "hid Trigger → Hybrid GPU in $dest" "${HYBRID_GPU_MENU_KEYS[*]}"
 }
 
 apply_power() {
@@ -303,10 +321,10 @@ apply_sleep() {
   install_root_file "$FILES/etc/systemd/logind.conf.d/30-mbp16-1-lid.conf" /etc/systemd/logind.conf.d/30-mbp16-1-lid.conf
   install_root_file "$FILES/etc/systemd/sleep.conf.d/90-mbp16-1-s2idle.conf" /etc/systemd/sleep.conf.d/90-mbp16-1-s2idle.conf
   install_lock_rearm
-  if pacman -Q linux-t2-mbp161 >/dev/null 2>&1; then
-    install_root_file "$FILES/etc/limine-entry-tool.d/zz-mbp16-1-boot-order.conf" /etc/limine-entry-tool.d/zz-mbp16-1-boot-order.conf
+  if pacman -Q "$KERNEL_PKGBASE" >/dev/null 2>&1; then
+    kernel_write_boot_order
   else
-    warn "linux-t2-mbp161 not installed yet — skip boot order. Run: mbp16-1 apply kernel"
+    warn "${KERNEL_PKGBASE} not installed yet — skip boot order. Run: mbp16-1 apply kernel --build"
   fi
   rebuild_boot
   if ((APPLY_BUNDLE == 0)); then
@@ -332,7 +350,7 @@ apply_kernel() {
   if ((DRY_RUN)); then
     log "dry-run: copy $KERNEL_DIR → $dest"
     if [[ ${1:-} == --build ]]; then
-      log "dry-run: makepkg -si in $dest, zz-mbp16-1-boot-order.conf, limine-update, mbp16-1-limine-quiet"
+      log "dry-run: makepkg -si in $dest, boot order (drop-in + /etc/default/limine), limine-update"
     else
       log "dry-run: packaging only (add --build to compile, or mbp16-1 update kernel to rebase)"
     fi
@@ -346,7 +364,7 @@ apply_kernel() {
     hint "mbp16-1 apply kernel --build     45–90 min, plugged in (vendored tree)"
     hint "mbp16-1 update kernel            rebase onto current linux-t2-arch, then makepkg"
     hint "or: cd $dest && makepkg -si && sudo limine-update && mbp16-1-limine-quiet"
-    hint "after a hand build, re-run: mbp16-1 apply sleep   (writes zz-mbp16-1-boot-order.conf)"
+    hint "after a hand build, re-run: mbp16-1 apply sleep   (boot order: drop-in + /etc/default/limine)"
   fi
 }
 

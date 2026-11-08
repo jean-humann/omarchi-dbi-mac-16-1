@@ -31,9 +31,44 @@ kernel_limine_quiet() {
   run as_root "$HOME/.local/bin/mbp16-1-limine-quiet"
 }
 
+# Make linux-t2-mbp161 the Limine default. Two places, because the last
+# BOOT_ORDER read wins and /etc/default/limine is read after every drop-in:
+#   1. zz-mbp16-1-boot-order.conf (enough on 4.0.x installs)
+#   2. /etc/default/limine — the 4.5 ISO writes BOOT_ORDER="linux-t2, ..." there
+#      on T2 Macs, which silently overrides (1) and boots stock linux-t2.
+# Replace that line; never just delete it (an order-less file can let a
+# non-T2 kernel sort first). Caller runs limine-update afterwards.
 kernel_write_boot_order() {
   install_root_file "$FILES/etc/limine-entry-tool.d/zz-mbp16-1-boot-order.conf" \
     /etc/limine-entry-tool.d/zz-mbp16-1-boot-order.conf
+  local conf=$LIMINE_DEFAULT_CONF want line count
+  want="BOOT_ORDER=\"${KERNEL_BOOT_ORDER}\""
+  if [[ ! -f $conf ]] || ! grep -Eq '^[[:space:]]*BOOT_ORDER[[:space:]]*=' "$conf"; then
+    log "no BOOT_ORDER in $conf" "the zz- drop-in alone sets the order"
+    return 0
+  fi
+  line=$(grep -E '^[[:space:]]*BOOT_ORDER[[:space:]]*=' "$conf" | tail -n 1)
+  count=$(grep -Ec '^[[:space:]]*BOOT_ORDER[[:space:]]*=' "$conf")
+  if [[ $line == "$want" && $count -eq 1 ]]; then
+    log "unchanged  BOOT_ORDER in $conf"
+    return 0
+  fi
+  backup_if_exists "$conf"
+  if ((DRY_RUN)); then
+    log "would replace BOOT_ORDER in $conf" "${line}  ->  ${want}"
+    return 0
+  fi
+  # Drop every BOOT_ORDER line, then append ours (the edit omarchy-kernel makes).
+  # '$a\' is sed for "end the file with a newline", not shell expansion.
+  # shellcheck disable=SC1003,SC2016
+  as_root sed -i -E -e '/^[[:space:]]*BOOT_ORDER[[:space:]]*=/d' -e '$a\' "$conf"
+  printf '%s\n' "$want" | as_root tee -a "$conf" >/dev/null
+  log "replaced BOOT_ORDER in $conf" "was: ${line}"
+}
+
+# 0 when the effective Limine order starts with linux-t2-mbp161.
+kernel_boot_order_ok() {
+  [[ $(limine_first_boot_kernel) == "$KERNEL_PKGBASE" ]]
 }
 
 kernel_makepkg_install() {
@@ -47,7 +82,7 @@ kernel_makepkg_install() {
     "Then mkinitcpio + limine-update (1–3 min), then mbp16-1-limine-quiet (timeout: 1, quiet: yes)." \
     "Then reboot unplugged onto ${KERNEL_PKGBASE}."
   if ((DRY_RUN)); then
-    log "dry-run: makepkg -si in $dest, zz-mbp16-1-boot-order.conf, limine-update, mbp16-1-limine-quiet"
+    log "dry-run: makepkg -si in $dest, boot order (drop-in + /etc/default/limine), limine-update"
     return 0
   fi
   local extra=()
@@ -89,6 +124,51 @@ kernel_upstream_nv() {
 
 kernel_upstream_commit() {
   git -C "$KERNEL_UPSTREAM_DIR" rev-parse --short HEAD 2>/dev/null || true
+}
+
+# linux-t2-arch's auto-update can bump pkgver while T2_PATCH_HASH already
+# points at t2linux patches written for the next kernel (seen 2026-11: pkgver
+# 7.2.14, patches KVER=7.3 → 7001 i915 fbdev rejects, upstream main build red).
+# Read the patch set's own version file and compare major.minor before a build.
+KERNEL_T2_PATCHES_RAW="${MBP16_1_T2_PATCHES_RAW:-https://raw.githubusercontent.com/t2linux/linux-t2-patches}"
+
+# stdout: KVER of the t2linux patches pinned by PKGBUILD $1 (e.g. 7.2.3, 7.3).
+kernel_t2_patch_kver() {
+  local hash
+  hash=$(sed -nE 's/^T2_PATCH_HASH=([0-9a-f]+).*/\1/p' "$1" | head -n 1)
+  [[ -n $hash ]] || return 1
+  curl -fsSL --max-time 20 "${KERNEL_T2_PATCHES_RAW}/${hash}/version" 2>/dev/null |
+    sed -nE 's/^KVER=([0-9][0-9.]*).*/\1/p' | head -n 1
+}
+
+# 0 when pkgver $1 (7.2.14.arch1) and patch KVER $2 (7.2.3) share major.minor.
+kernel_t2_patch_compat() {
+  local pa pb ka kb _
+  IFS=. read -r pa pb _ <<<"$1"
+  IFS=. read -r ka kb _ <<<"$2"
+  [[ -n $pa && -n $ka && $pa == "$ka" && ${pb:-} == "${kb:-}" ]]
+}
+
+# Sets KERNEL_UPSTREAM_BROKEN=1 when linux-t2-arch pairs a kernel with patches
+# for another series. Unknown (offline) is not broken: prepare() will tell.
+KERNEL_UPSTREAM_BROKEN=0
+kernel_check_upstream_patches() {
+  local pb="$KERNEL_UPSTREAM_DIR/PKGBUILD" upver kver
+  KERNEL_UPSTREAM_BROKEN=0
+  upver=$(sed -nE 's/^pkgver=([^[:space:]]+).*/\1/p' "$pb" | head -n 1)
+  kver=$(kernel_t2_patch_kver "$pb" || true)
+  if [[ -z $kver ]]; then
+    warn "t2linux patch version unknown" "could not read linux-t2-patches/<T2_PATCH_HASH>/version (offline?)"
+    return 0
+  fi
+  if kernel_t2_patch_compat "$upver" "$kver"; then
+    ok "t2linux patches KVER=${kver}" "same series as linux-t2-arch ${upver%.arch*}"
+    return 0
+  fi
+  KERNEL_UPSTREAM_BROKEN=1
+  warn "linux-t2-arch is inconsistent" \
+    "pkgver ${upver} but T2_PATCH_HASH is t2linux KVER=${kver}; prepare() would reject its patches"
+  hint "Keep your current ${KERNEL_PKGBASE}. Re-run mbp16-1 update kernel --check in a few days."
 }
 
 kernel_sync_run() {
@@ -237,8 +317,13 @@ mbp16_1_update_kernel() {
   [[ -n $pack ]] && ok "toolbox packaging ${pack}"
   [[ -n $daily ]] && ok "installed ${KERNEL_PKGBASE} ${daily}"
   [[ -n $stock ]] && ok "installed ${KERNEL_STOCK} ${stock}"
+  kernel_check_upstream_patches
 
   if ((check)); then
+    if ((KERNEL_UPSTREAM_BROKEN)); then
+      info "no rebuild until upstream is consistent" "installed ${daily:-none}; packaging ${pack:-?}"
+      return 0
+    fi
     kernel_sync_check || st=$?
     if ((st != 0 && st != 2)); then
       die "kernel sync check failed" "see lib/kernel_sync.py"
@@ -281,6 +366,10 @@ mbp16_1_update_kernel() {
     ok "already current" "${KERNEL_PKGBASE} ${daily} matches linux-t2-arch ${up}"
     hint "rebuild anyway: mbp16-1 update kernel --force"
     return 0
+  fi
+  if ((KERNEL_UPSTREAM_BROKEN)); then
+    die "not rebasing onto linux-t2-arch ${up}" \
+      "its T2_PATCH_HASH targets another kernel series; kernel/ untouched, ${KERNEL_PKGBASE} ${daily:-?} stays default"
   fi
 
   expect "Rebuild ${KERNEL_PKGBASE}  ${pack:-?}  →  ${up}" \

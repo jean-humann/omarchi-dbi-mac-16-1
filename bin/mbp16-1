@@ -44,6 +44,7 @@ usage() {
   ui_kv "macos reclaim" "reinstall: delete the old Linux partitions (typed id each)"
   ui_kv "apply desktop" "C+D files without the sleep kernel"
   ui_kv "apply gpu / display / …" "one Linux piece"
+  ui_kv "apply luks" "built-in keyboard at the LUKS prompt (also in setup)"
   ui_kv "apply kernel --build" "first sleep kernel only (45–90 min)"
   ui_kv "update kernel" "rebase daily onto current linux-t2-arch"
   ui_kv "deps" "runtimes only (setup/apply already call this)"
@@ -376,6 +377,7 @@ case $cmd in
     ui_command "apply ${phase}${extra[*]:+ ${extra[*]}}"
     case $phase in
       gpu) apply_gpu ;;
+      luks) apply_luks ;;
       display) apply_display ;;
       input) apply_input ;;
       fans) apply_fans ;;

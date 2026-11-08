@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Omarchy sur MacBook Pro 16,1 (T2) : synthèse</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-size:14px;line-height:1.45}
+.page{display:flex;flex-direction:column;gap:34px}
+section{display:flex;flex-direction:column;gap:12px}
+h2{font-size:16px;font-weight:650;margin:0;display:flex;align-items:baseline;gap:8px}
+h2 .n{font-family:var(--font-mono);font-size:12px;color:var(--muted-foreground);font-weight:500}
+h3{font-size:14px;margin:0;font-weight:650}
+p{margin:0}
+.lede{color:var(--muted-foreground);font-size:13px}
+code,.mono{font-family:var(--font-mono);font-size:12px}
+code{background:var(--code-background);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre{margin:0;font-family:var(--font-mono);font-size:12px;background:var(--code-background);padding:12px 14px;border-radius:calc(var(--radius) - 2px);overflow-x:auto;line-height:1.55}
+pre .c{color:var(--muted-foreground)}
+.box{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.muted{color:var(--muted-foreground)}
+.small{font-size:12px}
+
+/* status chips: icon + label, never colour alone */
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;line-height:1;padding:4px 8px;border-radius:999px;white-space:nowrap;border:1px solid var(--border);font-weight:550;background:var(--muted)}
+.chip i{font-style:normal;font-weight:700}
+.chip.ok{background:color-mix(in srgb,var(--success) 14%,transparent);border-color:color-mix(in srgb,var(--success) 40%,transparent)}
+.chip.ok i{color:var(--success)}
+.chip.bad{background:color-mix(in srgb,var(--destructive) 14%,transparent);border-color:color-mix(in srgb,var(--destructive) 40%,transparent)}
+.chip.bad i{color:var(--destructive)}
+.chip.warn{background:color-mix(in srgb,var(--warning) 16%,transparent);border-color:color-mix(in srgb,var(--warning) 45%,transparent)}
+.chip.warn i{color:var(--warning)}
+.chip.info{background:color-mix(in srgb,var(--info) 14%,transparent);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+.chip.info i{color:var(--info)}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.tile{display:flex;flex-direction:column;gap:2px}
+.tile .lab{font-size:12px;color:var(--muted-foreground)}
+.tile .val{font-size:26px;font-weight:650;letter-spacing:-.01em;font-variant-numeric:tabular-nums;line-height:1.2;margin:4px 0 2px}
+.tile .sub{font-size:12px;color:var(--muted-foreground)}
+.tile.bad .val i{font-style:normal;color:var(--destructive);font-size:20px;margin-right:4px}
+@media (max-width:620px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* blocker */
+.alert{background:var(--destructive-surface);border:1px solid color-mix(in srgb,var(--destructive) 40%,transparent);border-radius:var(--radius);padding:16px;display:flex;flex-direction:column;gap:10px}
+.alert h3{display:flex;gap:8px;align-items:center;font-size:15px}
+.alert h3 .ic{color:var(--destructive);font-size:16px}
+.alert ul{margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:3px}
+
+/* A. supply chain */
+.chain{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(8,auto);grid-auto-flow:column;column-gap:12px}
+.lane-h{font-size:12px;font-weight:650;color:var(--muted-foreground);padding:0 2px 8px;display:flex;align-items:center;gap:6px}
+.lane-h .sw{width:10px;height:10px;border-radius:3px;flex:none}
+.node{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:flex;flex-direction:column;gap:4px;height:100%}
+.node b{font-family:var(--font-mono);font-size:12.5px;font-weight:650;overflow-wrap:anywhere}
+.node span{font-size:12px;color:var(--muted-foreground)}
+.node .chip{align-self:flex-start;margin-top:2px}
+.node.bad{border-color:color-mix(in srgb,var(--destructive) 60%,var(--border))}
+.node.warn{border-color:color-mix(in srgb,var(--warning) 65%,var(--border))}
+.node.ok{border-color:color-mix(in srgb,var(--success) 60%,var(--border))}
+.arr{text-align:center;color:var(--muted-foreground);font-size:13px;line-height:1;padding:5px 0}
+.converge{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;color:var(--muted-foreground);font-size:13px;padding:6px 0}
+.boot{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.boot li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:12.5px}
+.boot li .mono{min-width:150px;font-weight:600}
+@media (max-width:620px){.chain{grid-template-columns:1fr;grid-auto-flow:row;grid-template-rows:none}.lane-h{padding-top:14px}.converge{display:none}}
+
+/* B. install steps */
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px;position:relative;padding-bottom:16px}
+.step:not(:last-child)::before{content:"";position:absolute;left:13px;top:30px;bottom:2px;width:2px;background:var(--border)}
+.num{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:650;background:var(--muted);border:1px solid var(--border);font-family:var(--font-mono)}
+.step.bad .num{background:var(--destructive);color:var(--destructive-foreground);border-color:var(--destructive)}
+.step.warn .num{background:var(--warning);color:var(--warning-foreground);border-color:var(--warning)}
+.step.mine .num{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+.st{display:flex;flex-direction:column;gap:3px;padding-top:4px}
+.sh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.st p{font-size:13px}
+.src{font-family:var(--font-mono);font-size:11px;color:var(--muted-foreground)}
+.kern{font-family:var(--font-mono);font-size:11px;padding:3px 7px;border-radius:6px;background:var(--code-background);border:1px solid var(--border);white-space:nowrap}
+.step.bad .st{background:var(--destructive-surface);border-radius:var(--radius);padding:12px 16px 14px;margin-top:-6px}
+.who{font-size:11px;font-weight:600;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.04em}
+
+/* C. timeline */
+.tl{position:relative}
+.tl svg{width:100%;height:auto;display:block;overflow:visible}
+.tl text{font-family:var(--font-sans);fill:var(--foreground)}
+.tl .lbl{font-size:10.5px;paint-order:stroke;stroke:var(--background);stroke-width:3px;stroke-linejoin:round}
+.tl .lane-name{font-size:12px;font-weight:600}
+.tl .axis{font-size:11px;fill:var(--muted-foreground)}
+.tl .hit{fill:transparent;cursor:pointer}
+.tl .hit:focus{outline:none}
+.tl .dot{stroke:var(--background);stroke-width:2px}
+.tl .dot.on{stroke:var(--foreground)}
+.tip{position:absolute;pointer-events:none;background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);padding:8px 10px;font-size:12px;max-width:300px;box-shadow:0 6px 20px rgb(0 0 0 / .18);opacity:0;transition:opacity .08s;z-index:2}
+.tip.show{opacity:1}
+.tip .td{font-size:11px;color:var(--muted-foreground);margin-bottom:4px}
+.tip div+div{margin-top:3px}
+.tip code{font-size:11px}
+.evlist{columns:2;column-gap:24px;font-size:12.5px}
+.evlist .m{break-after:avoid;font-size:11px;font-weight:650;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 4px}
+.evlist .m:first-child{margin-top:0}
+.ev{display:grid;grid-template-columns:38px 10px minmax(0,1fr);gap:6px;align-items:baseline;break-inside:avoid;padding:2px 0}
+.ev .d{font-family:var(--font-mono);font-size:11px;color:var(--muted-foreground)}
+.ev .sq{width:8px;height:8px;border-radius:2px;display:inline-block}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted-foreground)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend .sq{width:10px;height:10px;border-radius:3px}
+@media (max-width:620px){.evlist{columns:1}}
+
+/* tables */
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:12px;color:var(--muted-foreground);font-weight:600;padding:6px 10px 6px 0;border-bottom:1px solid var(--border)}
+td{padding:9px 10px 9px 0;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.k{font-family:var(--font-mono);font-size:12px;font-weight:600;white-space:nowrap}
+td .chip{margin-bottom:3px}
+td small{display:block;color:var(--muted-foreground);font-size:12px;margin-top:2px}
+
+/* E. disk */
+.disk{display:flex;height:46px;border-radius:var(--radius);overflow:hidden;gap:2px;font-size:11.5px}
+.disk div{display:flex;flex-direction:column;justify-content:center;padding:0 10px;min-width:0;color:var(--foreground)}
+.disk b{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.disk span{color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@media (max-width:620px){.two{grid-template-columns:1fr}}
+.limine{font-family:var(--font-mono);font-size:12px;line-height:1.7}
+.limine .sel{background:color-mix(in srgb,var(--primary) 18%,transparent);border-radius:4px;padding:0 4px;margin:0 -4px}
+.limine .c{color:var(--muted-foreground)}
+
+/* G. next steps */
+.todo{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;counter-reset:t}
+.todo>li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;counter-increment:t}
+.todo>li::before{content:counter(t);width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-family:var(--font-mono);font-size:11.5px;font-weight:650;background:var(--muted);border:1px solid var(--border)}
+.todo>li.hot::before{background:var(--destructive);color:var(--destructive-foreground);border-color:var(--destructive)}
+.todo>li>div{display:flex;flex-direction:column;gap:6px;padding-top:2px;font-size:13px}
+.offer{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.offer .box{padding:12px 16px;font-size:12.5px;display:flex;flex-direction:column;gap:4px}
+.offer .box b{font-size:13px}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- HERO -->
+<section>
+  <div class="tiles">
+    <div class="box tile"><div class="lab">ISO Omarchy actuelle</div><div class="val">4.5.0</div><div class="sub">publiée le 05/11, branche <code>quattro</code></div></div>
+    <div class="box tile"><div class="lab">Noyau par défaut sur T2</div><div class="val">7.2.11</div><div class="sub"><code>linux-t2</code> 7.2.11.arch1-1, compilé le 18/10</div></div>
+    <div class="box tile"><div class="lab">Installé en plus</div><div class="val">7.2.15</div><div class="sub"><code>linux-omarchy</code>, sans pilotes T2</div></div>
+    <div class="box tile bad"><div class="lab">CI linux-t2 en échec</div><div class="val"><i>✗</i>20 j</div><div class="sub">depuis le 19/10 : aucun paquet plus récent</div></div>
+  </div>
+  <div class="alert">
+    <h3><span class="ic">⛔</span>Bloquant pour ta réinstallation : le clavier interne ne marche pas à la phrase LUKS</h3>
+    <ul>
+      <li>L'installateur 4.5 voit que <code>linux-omarchy</code> n'a pas le module <code>t2bce_vhci</code>. Il écrit alors <code>zz-omarchy-kernel-modules.conf</code>, qui retire ce module de <b>tous</b> les initramfs, y compris celui de <code>linux-t2</code>.</li>
+      <li>Confirmé sur MacBookPro16,1 (issues #17755 et #17155). Les correctifs (PR #18035, #17164) ne sont pas encore fusionnés.</li>
+      <li><b>Contournement :</b> tape la phrase LUKS sur un <b>clavier USB</b> au premier démarrage. <code>mbp16-1 setup</code> (via <code>apply gpu</code>) répare ensuite toutes les images de démarrage, <code>linux-t2-mbp161</code> comprise. Le clavier interne remarche au démarrage suivant.</li>
+      <li>La toolbox ne touche pas aux fichiers d'Omarchy : elle ajoute <code>zzz-mbp16-1-t2bce.conf</code>, lu <b>après</b> <code>zz-omarchy-kernel-modules.conf</code>. Le <code>?</code> laisse <code>linux-omarchy</code> se construire sans t2bce. <code>doctor</code> vérifie le module dans les images.</li>
+    </ul>
+<pre><span class="c"># seul, sans le reste de setup (même fichier que apply gpu)</span>
+./bin/mbp16-1 apply luks
+<span class="c"># à la main</span>
+printf '%s\n' 'MODULES+=(t2bce_vhci?)' | sudo tee /etc/mkinitcpio.conf.d/zzz-mbp16-1-t2bce.conf
+sudo mkinitcpio -P &amp;&amp; sudo limine-update</pre>
+  </div>
+  <div class="alert" style="margin-top:12px">
+    <h3><span class="ic">✎</span>Correction du 08/11 : l'écran Intel</h3>
+    <ul>
+      <li><code>force_igd</code> bascule la dalle sur l'Intel <b>après</b> que le firmware l'a allumée sur l'AMD. i915 la pilote alors sur <b>2 voies, 18 bpp avec tramage</b>. Ça marche, mais ce n'est pas le mode natif (deqrocks, mainteneur de KaiT2en).</li>
+      <li>La piste est la variable NVRAM <code>gpu-power-prefs</code> = 1 : le firmware démarre sur l'Intel, i915 entraîne le lien lui-même. Test sans rien installer, un redémarrage : README <b>C2b</b>. <code>doctor</code> affiche la ligne « Boot GPU ».</li>
+      <li>t2linux <b>PR #77</b> (4 voies forcées par quirk i915) n'est <b>pas retenue</b> : elle contourne <code>force_igd</code> au lieu d'en corriger la cause.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- A -->
+<section>
+  <h2><span class="n">A</span>D'où viennent les noyaux</h2>
+  <p class="lede">Trois filières indépendantes. Omarchy ne compile pas de noyau T2 : il installe celui de la communauté t2linux.</p>
+  <div class="chain">
+    <div class="lane-h"><span class="sw" style="background:var(--chart-1)"></span>Omarchy (officiel)</div>
+    <div class="node"><b>omacom/omarchy-pkgs</b><span>PKGBUILD <code>linux-omarchy</code>, noyau Arch générique</span></div>
+    <div class="arr">↓</div>
+    <div class="node"><b>Build Omarchy</b><span>aucun patch T2</span></div>
+    <div class="arr">↓</div>
+    <div class="node ok"><b>pkgs.omarchy.org</b><span>canaux stable, rc, edge</span><span class="chip ok"><i>✓</i>signé (f6377d2, 09/10)</span></div>
+    <div class="arr">↓</div>
+    <div class="node warn"><b>linux-omarchy 7.2.15-1</b><span>pas de <code>t2bce</code> : ni clavier ni trackpad internes</span><span class="chip warn"><i>⚠</i>inutilisable sur T2</span></div>
+
+    <div class="lane-h"><span class="sw" style="background:var(--chart-2)"></span>Communauté T2 (t2linux)</div>
+    <div class="node"><b>archlinux/linux + t2linux/linux-t2-patches</b><span>tag <code>v7.2.11-arch1</code>, patchs <code>@e167207</code></span></div>
+    <div class="arr">↓</div>
+    <div class="node bad"><b>NoaHimesaka1873/linux-t2-arch</b><span>CI GitHub Actions. ✓ 7.2.11.arch1-1 le 18/10, puis ✗ -2 à -8, ✗ 7.2.14 (patch 7001 i915)</span><span class="chip bad"><i>✗</i>en échec depuis le 19/10</span></div>
+    <div class="arr">↓</div>
+    <div class="node warn"><b>arch-mact2-mirror</b><span>releases GitHub, puis mirror.funami.tech en secours</span><span class="chip warn"><i>⚠</i>SigLevel = Never (non signé)</span></div>
+    <div class="arr">↓</div>
+    <div class="node ok"><b>linux-t2 7.2.11.arch1-1</b><span>noyau par défaut d'Omarchy 4.5.0 sur T2</span><span class="chip ok"><i>✓</i>tes pilotes T2</span></div>
+
+    <div class="lane-h"><span class="sw" style="background:var(--chart-3)"></span>Ta boîte à outils</div>
+    <div class="node"><b>yuters e77b03f (0001–0005)</b><span>gmux avant DRM, fbdev, faux eDP, s2idle, Titan Ridge. Même base que linux-t2</span></div>
+    <div class="arr">↓</div>
+    <div class="node"><b>mbp16-1 apply kernel --build</b><span>makepkg sur le Mac, environ 1 h</span></div>
+    <div class="arr">↓</div>
+    <div class="node"><b>aucun dépôt</b><span>installé en local par pacman, rien n'est publié</span></div>
+    <div class="arr">↓</div>
+    <div class="node ok"><b>linux-t2-mbp161</b><span>7.2.3 validé sur ta machine. 7.2.15 + e167207 préparé en Docker, pas encore démarré</span><span class="chip ok"><i>✓</i>s2idle, écran Intel, USB-C</span></div>
+  </div>
+  <div class="converge"><span>↓</span><span>↓</span><span>↓</span></div>
+  <div class="box">
+    <h3>Ton MacBook Pro 16,1 après <code>mbp16-1 setup</code></h3>
+    <ul class="boot">
+      <li><span class="mono">linux-t2-mbp161</span><span class="chip ok"><i>✓</i>par défaut</span><span class="muted small">écrit dans <code>/etc/default/limine</code> et <code>zz-mbp16-1-boot-order.conf</code></span></li>
+      <li><span class="mono">linux-t2 7.2.11</span><span class="chip info"><i>↺</i>secours</span><span class="muted small">noyau stock d'Omarchy, garde les pilotes T2</span></li>
+      <li><span class="mono">linux-omarchy 7.2.15</span><span class="chip warn"><i>⚠</i>ne pas démarrer dessus</span><span class="muted small">installé par Omarchy, hors du BOOT_ORDER de la toolbox</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- B -->
+<section>
+  <h2><span class="n">B</span>Comment Omarchy 4.5.0 s'installe sur un Mac T2 aujourd'hui</h2>
+  <p class="lede">D'après le code de <code>omacom/omarchy-iso</code> et <code>omacom/omarchy</code> (branche <code>quattro</code>), et les retours d'utilisateurs de 16,1 dans #17755.</p>
+  <ol class="steps">
+    <li class="step"><div class="num">1</div><div class="st">
+      <div class="sh"><b>Démarrage sur la clé</b><span class="kern">live : linux-t2 7.2.11</span></div>
+      <p>GRUB lit le SMBIOS. Si le fabricant est « Apple Inc. », il démarre le live sur <code>linux-t2</code>, que l'ISO embarque à côté de <code>linux-omarchy</code>. Dans le live, <code>applesmc</code> est désactivé.</p>
+      <div class="src">iso 256a0e4 (21/10) configs/grub/loopback.cfg · builder/build-iso.sh:365 · a12bfea · ed710a3</div>
+    </div></li>
+    <li class="step"><div class="num">2</div><div class="st">
+      <div class="sh"><b>Détection de la puce T2</b><span class="kern">choix : linux-t2</span></div>
+      <p>L'installateur trouve le PCI <code>106b:1801/1802</code> et choisit <code>linux-t2</code> comme noyau par défaut.</p>
+      <div class="src">orchestrator context.py::_default_kernel</div>
+    </div></li>
+    <li class="step warn"><div class="num">3</div><div class="st">
+      <div class="sh"><b>Disque</b><span class="chip warn"><i>⚠</i>Full disk install est listé en premier</span></div>
+      <p>Choisis <b>Free space install (alongside existing data)</b>. L'installateur crée <code>OMARCHY_EFI</code>, puis LUKS2 + btrfs dans l'espace libre. Le démarrage passe par Limine et des UKI.</p>
+    </div></li>
+    <li class="step"><div class="num">4</div><div class="st">
+      <div class="sh"><b>Copie du système</b><span class="kern">linux-omarchy 7.2.15 + linux-t2 7.2.11</span></div>
+      <p>L'image de base contient <code>linux-omarchy</code> et ses headers. <code>linux-t2-headers</code> vient d'arch-mact2 : <b>il faut le réseau</b>.</p>
+    </div></li>
+    <li class="step"><div class="num">5</div><div class="st">
+      <div class="sh"><b>Scripts T2 d'Omarchy (chroot)</b><span class="kern">config T2</span></div>
+      <p><code>pacman.sh</code> ajoute <code>[arch-mact2]</code> avec <code>SigLevel = Never</code>. <code>fix-t2.sh</code> installe <code>linux-t2</code>, ses headers, <code>apple-t2-audio-config</code>, <code>apple-bcm-firmware-fetcher</code> et <code>t2fanrd</code>. Il écrit aussi :</p>
+      <p class="small muted"><code>modules-load.d/t2.conf</code> (t2bce_vhci, hci_bcm4377) · <code>mkinitcpio.conf.d/apple-t2.conf</code> <code>MODULES+=(t2bce_vhci usbhid hid_apple …)</code> · ligne de noyau <code>intel_iommu=on iommu=pt pm_async=off mem_sleep_default=deep</code> · <code>t2fand.conf</code> (Fan1, Fan2 : 55→75 °C) · <code>brcmfmac feature_disable=0x82000</code></p>
+      <div class="src">install/hardware/pacman.sh · install/hardware/apple/fix-t2.sh · fix-brcmfmac-supplicant.sh</div>
+    </div></li>
+    <li class="step bad"><div class="num">6</div><div class="st">
+      <div class="sh"><b>Construction des UKI : le bug</b><span class="chip bad"><i>✗</i>t2bce_vhci retiré partout</span></div>
+      <p><code>_drop_initramfs_modules_the_kernel_lacks()</code> voit que <code>linux-omarchy</code> n'a pas <code>t2bce_vhci</code>. Il écrit <code>zz-omarchy-kernel-modules.conf</code> avec <code>_omarchy_absent=(t2bce_vhci)</code>, et le module disparaît aussi de l'initramfs de <code>linux-t2</code>.</p>
+      <div class="src">phases_impl.py · issues #17155 (31/10), #17755 (05/11) · PR #17164, #18035 ouvertes</div>
+    </div></li>
+    <li class="step bad"><div class="num">7</div><div class="st">
+      <div class="sh"><b>Premier démarrage</b><span class="kern">boot : linux-t2 7.2.11</span></div>
+      <p>Limine suit <code>BOOT_ORDER="linux-t2, linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"</code>. À la phrase LUKS, le clavier interne ne répond pas : utilise le <b>clavier USB</b> ; <code>mbp16-1 setup</code> fait ensuite la réparation.</p>
+      <div class="src">omarchy ff85faf (14/09) etc/limine-entry-tool.d/omarchy-defaults.conf</div>
+    </div></li>
+    <li class="step warn"><div class="num">8</div><div class="st">
+      <div class="sh"><b>Ouverture de session</b><span class="chip warn"><i>⚠</i>#9609 toujours ouvert</span></div>
+      <p>Sur 16,1, le gmux laisse l'écran sur l'AMD, ce qui peut bloquer la machine. Si l'écran reste noir : dans Limine, <code>e</code>, ajoute <code>module_blacklist=amdgpu</code>, puis F10.</p>
+    </div></li>
+    <li class="step mine"><div class="num">9</div><div class="st">
+      <div class="sh"><span class="who">ta boîte à outils</span><b><code>mbp16-1 setup</code></b><span class="kern">boot : linux-t2-mbp161</span></div>
+      <p>Compile <code>linux-t2-mbp161</code>, met l'écran sur l'Intel (<code>force_igd</code>, 2 voies), répare le clavier LUKS, garde le Titan Ridge éveillé, passe la veille en s2idle et remplace le BOOT_ORDER. <code>doctor</code> doit afficher <code>Limine default linux-t2-mbp161</code>.</p>
+    </div></li>
+  </ol>
+</section>
+
+<!-- C -->
+<section>
+  <h2><span class="n">C</span>Ce qu'Omarchy a poussé pour les Mac T2 (juillet → novembre 2026)</h2>
+  <p class="lede">Dates des commits d'après l'API GitHub. Survole un point pour le détail ; la liste complète suit le graphique.</p>
+  <div class="legend" id="legend"></div>
+  <div class="tl" id="tl"><div class="tip" id="tip"></div></div>
+  <div class="evlist" id="evlist"></div>
+</section>
+
+<!-- D -->
+<section>
+  <h2><span class="n">D</span>Quelle version de noyau, pour quoi</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Noyau</th><th>Rôle</th><th>État pour ton 16,1</th></tr></thead>
+    <tbody>
+      <tr><td class="k">mbp161 7.2.3</td><td>ton noyau dédié actuel<small>t2linux 1ed4126 + yuters 0001–0005</small></td><td><span class="chip ok"><i>✓</i>validé sur ta machine</span><small>s2idle, écran Intel, USB-C au réveil</small></td></tr>
+      <tr><td class="k">mbp161 7.2.15</td><td>dernière 7.2 (fin de vie)<small>t2linux e167207 + yuters 0001–0005 + 13 patchs KaiT2en / klizas</small></td><td><span class="chip info"><i>◐</i>préparé en Docker</span><small><code>makepkg --nobuild</code> OK, les 13 patchs s'appliquent (07 et 08 adaptés à 7.2), fichiers touchés compilés sans avertissement. Pas de paquet complet, pas testé sur le Mac.</small></td></tr>
+      <tr><td class="k">linux-t2 7.2.11</td><td>noyau stock d'Omarchy 4.5.0 sur T2</td><td><span class="chip ok"><i>✓</i>disponible, sert de secours</span><small>pas de s2idle fiable ni d'écran sur l'Intel</small></td></tr>
+      <tr><td class="k">linux-t2 7.2.14</td><td>annoncé dans Git</td><td><span class="chip bad"><i>✗</i>aucun binaire</span><small>la CI bute sur le patch 7001 i915. PR #301 en attente.</small></td></tr>
+      <tr><td class="k">linux-omarchy 7.2.15</td><td>noyau générique d'Omarchy</td><td><span class="chip bad"><i>✗</i>pas de t2bce</span><small>ni clavier ni trackpad internes</small></td></tr>
+      <tr><td class="k">7.3.x</td><td>prochaine cible de t2linux</td><td><span class="chip warn"><i>⚠</i>pas encore de paquet Arch cohérent</span><small>0003 serait à réécrire. walles obtient la veille deep sur 7.3.1-2 sans noyau dédié : piste pour abandonner le tien.</small></td></tr>
+      <tr><td class="k">yuters main</td><td>version actuelle de yuters</td><td><span class="chip bad"><i>✗</i>abandonné</span><small>l'approche « Intel d'abord » a été retirée (dcaaec5)</small></td></tr>
+    </tbody>
+  </table></div>
+  <div class="box small"><b>À compiler : un seul noyau.</b> <code>linux-t2-mbp161</code>, <b>en plus</b> de <code>linux-t2</code>, jamais à sa place. Ni <code>linux-omarchy</code>, ni <code>apple-gmux-t2-dkms-git</code>, ni yuters main.</div>
+</section>
+
+<!-- E -->
+<section>
+  <h2><span class="n">E</span>Ce que ton Mac aura sur le disque, et ce que la toolbox change</h2>
+  <div class="disk" aria-label="Disque interne, schéma pas à l'échelle">
+    <div style="flex:0 0 74px;background:var(--muted)"><b>disk0s1</b><span>EFI Apple</span></div>
+    <div style="flex:3;background:color-mix(in srgb,var(--chart-1) 28%,transparent)"><b>APFS macOS</b><span>gardé (dual-boot)</span></div>
+    <div style="flex:0 0 96px;background:color-mix(in srgb,var(--chart-3) 30%,transparent)"><b>OMARCHY_EFI</b><span>~2 Go, Limine + UKI</span></div>
+    <div style="flex:3;background:color-mix(in srgb,var(--chart-2) 26%,transparent)"><b>LUKS2 → btrfs</b><span>Omarchy</span></div>
+  </div>
+  <p class="small muted">Schéma, pas à l'échelle. <code>mbp16-1 macos reclaim</code> supprime d'abord l'ancien <code>OMARCHY_EFI</code> et l'ancienne partition LUKS, et ne touche jamais <code>disk0s1</code> ni APFS.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Sujet</th><th>Omarchy 4.5 écrit</th><th>La toolbox <code>mbp16-1</code> met</th></tr></thead>
+    <tbody>
+      <tr><td>Veille</td><td><code>mem_sleep_default=deep</code> dans <code>t2-mac.conf</code></td><td>la même ligne <b>sans deep</b>, plus <code>00-mbp16-1-sleep.conf</code> : <code>mem_sleep_default=s2idle pcie_ports=compat</code></td></tr>
+      <tr><td>Ordre de démarrage</td><td><code>linux-t2, linux-omarchy, …</code></td><td><code>linux-t2-mbp161, linux-t2, *fallback, Snapshots</code> (dans les deux fichiers)</td></tr>
+      <tr><td>Carte graphique</td><td>rien ; le menu Hybrid GPU est visible</td><td><code>apple-gmux force_igd</code> + les 3 entrées Hybrid GPU masquées<small>dalle en 2 voies / 18 bpp ; test <code>gpu-power-prefs</code> (C2b) pour 4 voies</small></td></tr>
+      <tr><td>USB</td><td>valeur par défaut</td><td><code>usbcore autosuspend=-1</code> + Titan Ridge <code>8086:15ec</code> toujours éveillé (<code>72-mbp16-1-titan-ridge.rules</code>, ~0,34 W)</td></tr>
+      <tr><td>Touch ID</td><td>rien</td><td><code>apply touchid</code> avec les empreintes exportées de macOS</td></tr>
+      <tr><td>Clavier à LUKS</td><td><span class="chip bad"><i>✗</i>t2bce_vhci filtré</span></td><td><span class="chip ok"><i>✓</i><code>zzz-mbp16-1-t2bce.conf</code></span><small><code>apply gpu</code> / <code>apply luks</code>, vérifié par <code>doctor</code> dans les images linux-t2 et linux-t2-mbp161</small></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- F -->
+<section>
+  <h2><span class="n">F</span>Les autres dépôts T2 regardés</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Projet</th><th>Ce que c'est</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td class="k">yuters e77b03f</td><td>les 5 patchs gmux, s2idle, Titan Ridge</td><td><span class="chip ok"><i>✓</i>intégré</span><small>base de ton noyau. Jamais proposés en amont, sans mainteneur.</small></td></tr>
+      <tr><td class="k">t2linux e167207</td><td>t2bce à jour, Wi-Fi BCM4377 en veille, Touch Bar et Bluetooth au réveil</td><td><span class="chip info"><i>◐</i>proposé (passage à 7.2.11)</span></td></tr>
+      <tr><td class="k">KaiT2en (deqrocks)</td><td><code>gpu-power-prefs</code> + <code>t2-gpu-preboot</code> à la place de <code>force_igd</code></td><td><span class="chip info"><i>★</i>à tester d'abord</span><small>README C2b, un redémarrage. Si 4 voies : palier 2 (linux-t2 stock + pile KaiT2en) dans une PR séparée</small></td></tr>
+      <tr><td class="k">t2linux PR #77</td><td>4 voies forcées par un quirk i915</td><td><span class="chip bad"><i>✗</i>pas retenue</span><small>contourne <code>force_igd</code> au lieu d'en corriger la cause ; pas fusionnée</small></td></tr>
+      <tr><td class="k">walles</td><td>veille deep sur 7.3.1-2 avec l'AMD allumée ; réveil 23 s → 5 s (SSDT) ; règle udev Titan Ridge</td><td><span class="chip ok"><i>✓</i>règle udev intégrée</span><small>dans <code>apply sleep</code> ; le reste, avec la 7.3 (essai A/B)</small></td></tr>
+      <tr><td class="k">klizas</td><td>16,1 sous CachyOS en 7.3 : CPU, Wi-Fi et Touch Bar au réveil, charge à 80 %</td><td><span class="chip info"><i>◐</i>5 patchs repris</span><small>Touch Bar et Wi-Fi au réveil, préparés sur 7.2.15 ; le reste avec la 7.3</small></td></tr>
+      <tr><td class="k">kazeshini178</td><td>traitement des 3 micros pour Arch (son trop faible)</td><td><span class="chip info"><i>◐</i>optionnel</span></td></tr>
+      <tr><td class="k">bentsignal</td><td>Wi-Fi : IPv6 coupé + powersave 2 (64 → ~500 Mb/s annoncés)</td><td><span class="chip warn"><i>⚠</i>à comparer à <code>apply wifi</code></span><small>couper IPv6 est un compromis</small></td></tr>
+      <tr><td class="k">OmApple (bramvanoploo)</td><td>plugin de barre : raccourcis Cmd, gestes trackpad, boutons de réglages</td><td><span class="chip warn"><i>⚠</i>avec précaution</span><small>pas les boutons « recommended » : ils remettent deep et l'autosuspend USB. Avertissement et réparation dans le README (10)</small></td></tr>
+      <tr><td class="k">macintog/t2touch</td><td>Touch ID 100 % Linux</td><td><span class="chip warn"><i>⚠</i>seulement sans macOS</span><small>bridgeOS ≥ 23P6068, incompatible avec <code>apply touchid</code></small></td></tr>
+      <tr><td class="k">arch-mact2 t2-touchid</td><td>nouveau paquet du 08/11 (KaiT2en-Fedora)</td><td><span class="chip info"><i>◷</i>à surveiller</span></td></tr>
+      <tr><td class="k">noyau officiel 7.3</td><td>correctif de coupure d'alimentation du 16,1</td><td><span class="chip ok"><i>✓</i>rien à faire</span><small>le bug n'existe pas en 7.2.x</small></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- G -->
+<section>
+  <h2><span class="n">G</span>Dans l'ordre</h2>
+  <ol class="todo">
+    <li><div><b>Prépare un clavier USB et un adaptateur USB-C.</b> Enregistre la phrase LUKS et le mot de passe dans ton gestionnaire.</div></li>
+    <li><div>Sur macOS : <code>./bin/mbp16-1 macos</code> (supprime l'ancien Linux, exporte les empreintes, ISO 4.5.0, écrit la clé).</div></li>
+    <li><div>⌥ au démarrage → EFI Boot orange → <b>Free space install (alongside existing data)</b>.</div></li>
+    <li class="hot"><div><b>Premier démarrage : phrase LUKS au clavier USB.</b></div></li>
+    <li><div><code>./bin/mbp16-1 setup</code> (il inclut la réparation LUKS), puis <code>doctor</code> → <code>Limine default linux-t2-mbp161</code> et <code>t2bce_vhci in boot image</code>. Redémarre au clavier interne pour le confirmer.</div></li>
+    <li><div><code>uname -r</code> se termine par <code>-t2-mbp161</code>, puis <code>./bin/mbp16-1 apply touchid</code>.</div></li>
+    <li><div><b>Test ★ <code>gpu-power-prefs</code></b> (README C2b) : un redémarrage, puis <code>boot_vga</code> et <code>lane_count</code>. Si 4 voies : palier 2 dans une PR séparée.</div></li>
+  </ol>
+  <h3 style="margin-top:6px">État au 08/11</h3>
+  <div class="offer">
+    <div class="box"><b><span class="chip ok"><i>✓</i>PR #1</span> Réparation clavier LUKS</b><span class="muted"><code>apply luks</code>, dans <code>setup</code> et <code>doctor</code>, valable aussi pour linux-t2-mbp161</span></div>
+    <div class="box"><b><span class="chip ok"><i>✓</i>PR #1</span> Règle udev Titan Ridge</b><span class="muted"><code>8086:15ec</code>, power/control=on (~0,34 W), dans <code>apply sleep</code></span></div>
+    <div class="box"><b><span class="chip ok"><i>✓</i>PR #1</span> doctor « Boot GPU »</b><span class="muted">lit <code>gpu-power-prefs</code> et <code>boot_vga</code>, sans rien écrire</span></div>
+    <div class="box"><b><span class="chip ok"><i>✓</i>PR #1</span> README</b><span class="muted">C2b <code>gpu-power-prefs</code>, PR #77 écartée, avertissement OmApple</span></div>
+    <div class="box"><b><span class="chip info"><i>◐</i>préparé</span> Noyau 7.2.15</b><span class="muted">e167207 + yuters + 13 patchs, prepare et compilation partielle OK en Docker</span></div>
+    <div class="box"><b><span class="chip info"><i>◐</i>compilé</span> Préboot Limine</b><span class="muted"><code>t2-gpu-preboot</code> qui lance Limine, rien d'installé</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(() => {
+  const lanes = [
+    {name:'ISO / installateur', short:'ISO', c:'var(--chart-1)'},
+    {name:'Scripts Omarchy',    short:'Omarchy', c:'var(--chart-2)'},
+    {name:'Migrations',         short:'Migration', c:'var(--chart-3)'},
+    {name:'Noyau linux-t2 (CI)',short:'Noyau', c:'var(--chart-4)'},
+    {name:'Issues et PR T2',    short:'Issue/PR', c:'var(--chart-5)'},
+  ];
+  // d: date shown on the axis; items: [ref, texte]; lab: direct label; pos: 'up' | 'down' | 'left'
+  const ev = [
+    {d:'2026-07-22',l:0,items:[['a72a109','Miroir de secours pour arch-mact2']]},
+    {d:'2026-07-28',l:0,items:[['ed710a3','Preset mkinitcpio linux-t2 dans le live']]},
+    {d:'2026-08-10',l:0,items:[['a12bfea','applesmc désactivé dans le live']]},
+    {d:'2026-10-09',l:0,items:[['9d4d03f','arch-mact2 : GitHub d’abord, miroir de Séoul ensuite'],['f6377d2','Signatures exigées pour les paquets Omarchy']]},
+    {d:'2026-10-21',l:0,items:[['256a0e4','GRUB lit le SMBIOS « Apple Inc. » → live sur linux-t2']],lab:'GRUB → live linux-t2',pos:'down'},
+    {d:'2026-11-05',l:0,items:[['ISO 4.5.0','Publiée (sha256 5d6288bc…)']]},
+
+    {d:'2026-07-29',l:1,items:[['38c1352','Fix t2 module']]},
+    {d:'2026-08-07',l:1,items:[['9cb3640','Veille T2 et ventilateurs par défaut (#6562)'],['b85ae70','Correctif pipefail']]},
+    {d:'2026-08-10',l:1,items:[['186668a','Quirk Broadcom pour Macs non-T2 (#6652)']]},
+    {d:'2026-09-14',l:1,items:[['ff85faf','BOOT_ORDER : linux-t2 en tête sur les Mac T2']],lab:'linux-t2 en tête du boot',pos:'up'},
+    {d:'2026-10-01',l:1,items:[['25db463 · aeeacce','apple-bcm-firmware-fetcher (firmware Wi-Fi/BT copié de macOS)']]},
+    {d:'2026-10-04',l:1,items:[['885e339','Retrait de l’ancienne gestion du firmware T2']]},
+    {d:'2026-10-10',span:'09–11/10',l:1,items:[['f03bf06','initramfs_async=0 et console « dumb »'],['e1b0e5e','omarchy-mac et omarchy-mx-mac fusionnés dans Omarchy (#14431)'],['9476e47','Manuel : iMac 2020']],lab:'fusion omarchy-mac',pos:'down'},
+    {d:'2026-10-21',l:1,items:[['6905265','omarchy-kernel : changer de noyau via Update › Kernel']]},
+    {d:'2026-11-03',l:1,items:[['265ce5d','Manuel : iMac 5K (la liste T2 n’a toujours pas le 16" 2019)']]},
+
+    {d:'2026-07-28',l:2,items:[['1785273276','apple-bce → t2bce']]},
+    {d:'2026-08-05',l:2,items:[['1785944594','pcie_ports=compat remplacé par pm_async=off mem_sleep_default=deep ; Fan2 ; retrait de tiny-dfr']],lab:'veille deep par défaut',pos:'up'},
+    {d:'2026-08-10',l:2,items:[['1786391100','brcmfmac : WPA (feature_disable=0x82000)']]},
+    {d:'2026-09-14',span:'13–15/09',l:2,items:[['1789325478','linux-omarchy devient le noyau par défaut, sauf si linux-t2 est installé'],['1789444024','Installe les headers manquants']],lab:'linux-omarchy par défaut (sauf T2)',pos:'down'},
+
+    {d:'2026-10-18',l:3,items:[['linux-t2 7.2.11.arch1-1','Dernière compilation réussie (patchs t2linux e167207)']],lab:'7.2.11.arch1-1 ✓',pos:'left'},
+    {d:'2026-11-02',l:3,items:[['7.2.14.arch1-1','Échec : patch 7001 i915, « Hunk #1 FAILED at 271 »']]},
+    {d:'2026-11-07',l:3,items:[['PR #301','7.2.14.arch1-2 en attente (action_required)']]},
+
+    {d:'2026-09-01',l:4,items:[['#9609','16,1 : le gmux laisse l’écran sur l’AMD, blocage à l’ouverture de session']],lab:'#9609 blocage gmux 16,1',pos:'down'},
+    {d:'2026-09-04',l:4,items:[['#10119','16" 2019 : coupures audio Bluetooth (hci_uart_bcm au lieu de hci_bcm4377)']]},
+    {d:'2026-09-08',l:4,items:[['PR #10758','Veille Thunderbolt du MacBookPro14,1']]},
+    {d:'2026-10-22',l:4,items:[['#16287','Linux seul : pas de firmware Wi-Fi une fois macOS effacé']]},
+    {d:'2026-10-31',l:4,items:[['#17155','Clavier interne mort à la phrase LUKS'],['PR #17164','Rendre t2bce_vhci optionnel'],['#17124','BCM43602 : Wi-Fi bloqué au réveil (pas le 16,1)']]},
+    {d:'2026-11-05',l:4,items:[['#17755','Le filtre de l’installateur retire t2bce_vhci ; confirmé sur 16,1']],lab:'#17755 clavier LUKS (16,1)',pos:'up'},
+    {d:'2026-11-08',span:'07–08/11',l:4,items:[['PR #18035','Garder t2bce_vhci dans l’initramfs de linux-t2'],['PR #18036','Firmware Wi-Fi quand macOS est effacé'],['PR #18020','Sections t2fanrd pour les Mac à 4 ventilateurs'],['#18151','Miroirs de secours pour arch-mact2']]},
+  ];
+  const band = {from:'2026-10-19', to:'2026-11-08', l:3,
+    items:[['7.2.11.arch1-2 → -8','Toutes les compilations échouent'],['7.2.14.arch1-1','Échec au patch 7001']]};
+
+  const W=712, X0=150, X1=700, TOP=26, LH=46, H=TOP+LH*lanes.length+26;
+  const t = s => { const [y,m,d]=s.split('-').map(Number); return Date.UTC(y,m-1,d); };
+  const D0=t('2026-07-15'), D1=t('2026-11-12');
+  const x = s => X0 + (t(s)-D0)/(D1-D0)*(X1-X0);
+  const cy = l => TOP + LH*l + LH/2;
+  const fr = s => { const [,m,d]=s.split('-'); return d+'/'+m; };
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Chronologie des changements T2 d'Omarchy, juillet à novembre 2026">`;
+  // lane separators + names
+  lanes.forEach((ln,i)=>{
+    const y0 = TOP+LH*i;
+    if(i) svg += `<line x1="0" x2="${W}" y1="${y0}" y2="${y0}" stroke="var(--border)" stroke-width="1"/>`;
+    svg += `<rect x="0" y="${cy(i)-5}" width="10" height="10" rx="3" fill="${ln.c}"/>`;
+    svg += `<text class="lane-name" x="16" y="${cy(i)+4}">${ln.name}</text>`;
+  });
+  // month grid
+  [['2026-08-01'],['2026-09-01'],['2026-10-01'],['2026-11-01']].forEach(([d])=>{
+    svg += `<line x1="${x(d)}" x2="${x(d)}" y1="${TOP}" y2="${TOP+LH*lanes.length}" stroke="var(--border)" stroke-dasharray="2 4"/>`;
+  });
+  [['juil.','2026-07-23'],['août','2026-08-16'],['sept.','2026-09-15'],['oct.','2026-10-16'],['nov.','2026-11-06']].forEach(([m,d])=>{
+    svg += `<text class="axis" x="${x(d)}" y="${H-6}" text-anchor="middle">${m}</text>`;
+  });
+  // ISO release line
+  const xi = x('2026-11-05');
+  svg += `<line x1="${xi}" x2="${xi}" y1="${TOP-6}" y2="${TOP+LH*lanes.length}" stroke="var(--muted-foreground)" stroke-width="1" stroke-dasharray="4 3"/>`;
+  svg += `<text class="axis" x="${xi+4}" y="${TOP-10}" text-anchor="end">ISO 4.5.0 · 05/11</text>`;
+  // CI failure band
+  const bx0=x(band.from), bx1=x(band.to), by=cy(band.l);
+  svg += `<rect x="${bx0}" y="${by-8}" width="${bx1-bx0}" height="16" rx="4" fill="color-mix(in srgb,var(--destructive) 22%,transparent)" stroke="color-mix(in srgb,var(--destructive) 55%,transparent)"/>`;
+  svg += `<text class="lbl" x="${bx0+2}" y="${by-12}">✗ CI en échec</text>`;
+  svg += `<rect class="hit" data-band="1" tabindex="0" x="${bx0}" y="${by-10}" width="${bx1-bx0}" height="20"/>`;
+  // dots
+  ev.forEach((e,i)=>{
+    const ex=x(e.d), ey=cy(e.l), c=lanes[e.l].c;
+    const r = e.items.length>1 ? 6.5 : 5.5;
+    svg += `<circle class="dot" id="dot${i}" cx="${ex}" cy="${ey}" r="${r}" fill="${c}"/>`;
+    if(e.items.length>1) svg += `<text x="${ex}" y="${ey+3.5}" text-anchor="middle" style="font-size:9px;font-weight:700;fill:var(--background)">${e.items.length}</text>`;
+    if(e.lab){
+      if(e.pos==='left') svg += `<text class="lbl" x="${ex-10}" y="${ey+4}" text-anchor="end">${esc(e.lab)}</text>`;
+      else {
+        const yy = e.pos==='up' ? ey-11 : ey+19;
+        let anchor='middle', xx=ex;
+        if(ex>620){anchor='end'; xx=Math.min(ex+12,W);}
+        svg += `<text class="lbl" x="${xx}" y="${yy}" text-anchor="${anchor}">${esc(e.lab)}</text>`;
+      }
+    }
+    svg += `<circle class="hit" data-i="${i}" tabindex="0" cx="${ex}" cy="${ey}" r="11"><title>${esc(e.items.map(it=>it[0]+' : '+it[1]).join(' | '))}</title></circle>`;
+  });
+  svg += `</svg>`;
+  const tl = document.getElementById('tl');
+  tl.insertAdjacentHTML('beforeend', svg);
+
+  // tooltip
+  const tip = document.getElementById('tip');
+  const show = (el, date, items) => {
+    tip.innerHTML = `<div class="td">${date}</div>` + items.map(([r,s])=>`<div><code>${esc(r)}</code> ${esc(s)}</div>`).join('');
+    tip.classList.add('show');
+    const b = el.getBoundingClientRect(), p = tl.getBoundingClientRect();
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = b.left - p.left + b.width/2 - tw/2;
+    left = Math.max(0, Math.min(left, p.width - tw));
+    let top = b.top - p.top - th - 8;
+    if (top < 0) top = b.bottom - p.top + 8;
+    tip.style.left = left+'px'; tip.style.top = top+'px';
+  };
+  const hide = () => { tip.classList.remove('show'); document.querySelectorAll('.dot.on').forEach(d=>d.classList.remove('on')); };
+  tl.querySelectorAll('.hit').forEach(h=>{
+    const on = () => {
+      hide();
+      if(h.dataset.band){ show(h, '19/10 → 08/11', band.items); return; }
+      const e = ev[+h.dataset.i];
+      document.getElementById('dot'+h.dataset.i).classList.add('on');
+      show(h, e.span || fr(e.d), e.items);
+    };
+    h.addEventListener('pointerenter', on); h.addEventListener('focus', on);
+    h.addEventListener('pointerleave', hide); h.addEventListener('blur', hide);
+  });
+
+  // legend + table view (same data)
+  document.getElementById('legend').innerHTML = lanes.map(l=>`<span><i class="sq" style="background:${l.c}"></i>${l.name}</span>`).join('');
+  const months = {'07':'Juillet','08':'Août','09':'Septembre','10':'Octobre','11':'Novembre'};
+  const rows = [];
+  ev.forEach(e=>e.items.forEach(([r,s])=>rows.push({d:e.d, span:e.span, l:e.l, r, s})));
+  rows.push({d:'2026-10-19', l:3, r:'7.2.11.arch1-2', s:'Premier échec de la CI ; les suivants (-3 à -8) échouent aussi'});
+  rows.sort((a,b)=>a.d.localeCompare(b.d) || a.l-b.l);
+  let html='', cur='';
+  rows.forEach(r=>{
+    const m=r.d.slice(5,7);
+    if(m!==cur){ cur=m; html+=`<div class="m">${months[m]}</div>`; }
+    html += `<div class="ev"><span class="d">${fr(r.d)}</span><i class="sq" style="background:${lanes[r.l].c}" title="${lanes[r.l].name}"></i><span><code>${esc(r.r)}</code> ${esc(r.s)}</span></div>`;
+  });
+  document.getElementById('evlist').innerHTML = html;
+})();
+</script>
+</body>
+</html>

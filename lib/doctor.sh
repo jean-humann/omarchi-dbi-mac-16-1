@@ -24,6 +24,114 @@ _doc_fr_mac_files() {
   return 1
 }
 
+# Apple NVRAM boot GPU (0 = AMD, 1 = Intel) and the t2-gpu-preboot mode var.
+DOC_GPU_PREFS=/sys/firmware/efi/efivars/gpu-power-prefs-fa4ce28d-b62f-4c99-9cc3-6815686e30f9
+DOC_PREBOOT_VAR=/sys/firmware/efi/efivars/boot-gpu-cf9aa22b-9505-4c88-aed0-5673e31b00c2
+DOC_LUKS_ZZ=/etc/mkinitcpio.conf.d/zz-omarchy-kernel-modules.conf
+DOC_LUKS_FIX=/etc/mkinitcpio.conf.d/zzz-mbp16-1-t2bce.conf
+DOC_TITAN_RULE=/etc/udev/rules.d/72-mbp16-1-titan-ridge.rules
+
+# First data byte of an efivarfs file (bytes 0-3 are the attributes). Read-only.
+_doc_efivar_byte() {
+  [[ -r $1 ]] || return 1
+  od -An -tu1 -j4 -N1 "$1" 2>/dev/null | tr -d ' \n'
+}
+
+# Root without a prompt. Doctor never asks for a password.
+_doc_root() {
+  if [[ $(id -u) -eq 0 ]]; then
+    "$@"
+  else
+    sudo -n "$@" 2>/dev/null
+  fi
+}
+
+# Boot image of one kernel: limine-mkinitcpio UKI, else a plain initramfs.
+_doc_boot_image() {
+  _doc_root find /boot -maxdepth 4 -type f \( -name "*_$1.efi" -o -name "initramfs-$1.img" \
+    -o -path "*/$1/initramfs-$1" \) -print -quit
+}
+
+_doc_root_is_luks() {
+  [[ $cmdline == *cryptdevice=* || $cmdline == *rd.luks* ]] && return 0
+  [[ $'\n'$(lsblk -rno TYPE 2>/dev/null)$'\n' == *$'\n'crypt$'\n'* ]]
+}
+
+# power/control of the Titan Ridge xHCI, or nothing if it is not on the bus.
+_doc_titan_ridge_control() {
+  local d
+  for d in /sys/bus/pci/devices/*; do
+    [[ $(read_sys "$d/vendor") == 0x8086 && $(read_sys "$d/device") == 0x15ec ]] || continue
+    read_sys "$d/power/control"
+    return 0
+  done
+  return 1
+}
+
+_doc_boot_gpu() {
+  local prefs boot_vga preboot
+  prefs=$(_doc_efivar_byte "$DOC_GPU_PREFS" || true)
+  boot_vga=$(read_sys "/sys/bus/pci/devices/${INTEL_PCI}/boot_vga")
+  preboot=$(_doc_efivar_byte "$DOC_PREBOOT_VAR" || true)
+  subsection "Boot GPU (read-only):"
+  if [[ $boot_vga == 1 ]]; then
+    ok "firmware started on Intel  ·  gpu-power-prefs=${prefs:-unset}" \
+      "the iGPU trained the eDP link itself; force_igd had nothing to switch"
+  elif [[ -n $boot_vga ]]; then
+    info "firmware started on AMD  ·  gpu-power-prefs=${prefs:-unset}" \
+      "force_igd moves the lid later: eDP 2 lanes, 18 bpp dithered. README C2 → gpu-power-prefs test"
+    if [[ $prefs == 1 ]]; then
+      hint "gpu-power-prefs is already 1: the firmware reads it at the next boot"
+    fi
+  fi
+  if [[ -n $preboot ]]; then
+    info "t2-gpu-preboot mode byte ${preboot}" "1 = restore Intel after macOS. Not installed by this toolbox"
+  fi
+}
+
+_doc_luks_keyboard() {
+  _doc_root_is_luks || return 0
+  local cfg=0 pkgbase img listing unread=0
+  local -a good=() bad=() missing=()
+  if [[ -f $DOC_LUKS_FIX ]] || ! grep -qs 't2bce_vhci' "$DOC_LUKS_ZZ"; then
+    cfg=1
+  fi
+  for pkgbase in "$KERNEL_STOCK" "$KERNEL_PKGBASE"; do
+    pacman -Q "$pkgbase" >/dev/null 2>&1 || continue
+    if ! _doc_root true; then
+      unread=1
+      continue
+    fi
+    img=$(_doc_boot_image "$pkgbase" || true)
+    # Whole listing first: grep -q closing the pipe would fail it under pipefail.
+    listing=
+    [[ -n $img ]] && listing=$(_doc_root lsinitcpio -l "$img" || true)
+    if [[ -z $img ]]; then
+      missing+=("$pkgbase")
+    elif grep -q 't2bce_vhci\.ko' <<<"$listing"; then
+      good+=("$pkgbase")
+    else
+      bad+=("$pkgbase")
+    fi
+  done
+  subsection "LUKS keyboard:"
+  if ((${#bad[@]})); then
+    _doc_fail "t2bce_vhci missing from boot image: ${bad[*]}" \
+      "built-in keyboard is dead at the passphrase (omacom/omarchy#17755) — mbp16-1 apply luks" \
+      "mbp16-1 apply luks"
+  elif ((cfg == 0)); then
+    _doc_fail "zz-omarchy-kernel-modules.conf drops t2bce_vhci" \
+      "omacom/omarchy#17755 — mbp16-1 apply luks" "mbp16-1 apply luks"
+  elif ((${#good[@]})); then
+    ok "t2bce_vhci in boot image: ${good[*]}"
+  elif ((unread)); then
+    ok "t2bce_vhci drop-in" "boot images not read (needs sudo): sudo lsinitcpio -l /boot/EFI/Linux/omarchy_linux-t2.efi | grep t2bce"
+  fi
+  if ((${#missing[@]})); then
+    info "no boot image found for ${missing[*]}" "limine-update, then re-run doctor"
+  fi
+}
+
 mbp16_1_doctor() {
   local model rc=0 rec=0
   ui_reset_counts
@@ -101,6 +209,8 @@ mbp16_1_doctor() {
     fi
   fi
 
+  _doc_boot_gpu
+
   subsection "Routing:"
   local gmux=0 drm=0 aqua_ok=0 hybrid=0
   grep -q 'force_igd=1' /etc/modprobe.d/apple-gmux.conf 2>/dev/null && gmux=1
@@ -149,6 +259,7 @@ mbp16_1_doctor() {
         "mbp16-1 apply sleep"
     fi
   fi
+  _doc_luks_keyboard
 
   # ── Sleep: live state, then files
   section "Sleep" "s2idle only. After SMU -62, do not suspend again."
@@ -181,8 +292,11 @@ mbp16_1_doctor() {
     lidpol=1
   fi
   grep -Rsq 'autosuspend=-1' /etc/modprobe.d/*.conf 2>/dev/null && usb=1
-  if ((t2mac && dropin && sd_sleep && lidpol && usb)); then
-    ok "lid undocked suspend / docked ignore  ·  USB stay bound"
+  local titan=0 titan_ctl
+  titan_ctl=$(_doc_titan_ridge_control || true)
+  [[ -f $DOC_TITAN_RULE && $titan_ctl != auto ]] && titan=1
+  if ((t2mac && dropin && sd_sleep && lidpol && usb && titan)); then
+    ok "lid undocked suspend / docked ignore  ·  USB stay bound  ·  Titan Ridge awake"
   else
     ((t2mac)) || {
       if [[ ! -f /etc/limine-entry-tool.d/t2-mac.conf ]]; then
@@ -195,6 +309,15 @@ mbp16_1_doctor() {
     ((sd_sleep)) || _doc_fail "systemd sleep is not s2idle" "mbp16-1 setup" "mbp16-1 setup"
     ((lidpol)) || _doc_fail "lid policy missing" "mbp16-1 setup" "mbp16-1 setup"
     ((usb)) || _doc_fail "usbcore autosuspend=-1 missing" "mbp16-1 setup" "mbp16-1 setup"
+    if ((titan == 0)); then
+      if [[ -f $DOC_TITAN_RULE ]]; then
+        info "Titan Ridge xHCI is still runtime-suspending" \
+          "sudo udevadm trigger --action=add --attr-match=vendor=0x8086 --attr-match=device=0x15ec"
+      else
+        info "Titan Ridge xHCI may runtime-suspend" "USB-C plugs can go unseen (~0.34 W to keep it up) — mbp16-1 apply sleep"
+        ui_next "mbp16-1 apply sleep"
+      fi
+    fi
   fi
   if [[ -r /boot/limine.conf ]]; then
     if grep -q '^timeout: 1' /boot/limine.conf && grep -q '^quiet: yes' /boot/limine.conf; then

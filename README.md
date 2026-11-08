@@ -82,8 +82,9 @@ Stock Omarchy 4.5 on this 16,1 already has T2 audio, Broadcom firmware, `t2fanrd
 | Feature | Support | Thanks to |
 | --- | --- | --- |
 | Keep macOS (dual-boot) | Yes | this toolbox (`macos` hole + installer **Free space install**) |
-| Intel lid (Apple Color LCD) | Yes | this toolbox (`setup` / `apply gpu` — gmux `force_igd`) |
-| USB-C DisplayPort | Yes | this toolbox (`apply display` — AMD 5500M; unplug before login) |
+| Intel lid (Apple Color LCD) | Yes, 2 lanes / 18 bpp | this toolbox (`setup` / `apply gpu` — gmux `force_igd`). 4 lanes / 24 bpp: [C2b](#c2b-optional-test-gpu-power-prefs-4-lane-panel) |
+| Built-in keyboard at the LUKS prompt | Yes, after `setup` | this toolbox (`apply luks`, [omarchy#17755](https://github.com/omacom/omarchy/issues/17755)). Wired keyboard until then |
+| USB-C DisplayPort | Yes | this toolbox (`apply display` — AMD 5500M; unplug before login). Titan Ridge kept awake (`apply sleep`) |
 | Sleep | Yes | this toolbox (`linux-t2-mbp161` s2idle). **Not** stock `linux-t2` |
 | Lid close | Yes | this toolbox — undocked sleeps, docked ignores |
 | Touch ID | Yes | this toolbox (`macos` export + `apply touchid`) — lock, sudo, pkexec. Needs macOS-enrolled prints; Linux-only: [E1](#e1-touch-id-without-macos) |
@@ -315,7 +316,7 @@ Installer UI is typically **10–20 minutes** after you confirm the disk. On 4.5
 | --- | --- |
 | Disk | The internal SSD, then **Free space install (alongside existing data)**. **Not** “Full disk install” (listed **first**, wipes macOS). Leave the partition tool (cfdisk) alone |
 | Free space | ≥32 GB unallocated after the APFS container (`macos` aims for 80 GB) |
-| LUKS | Default on. **Write the passphrase down**: losing it means a reinstall |
+| LUKS | Default on. **Write the passphrase down**: losing it means a reinstall. Type it on the **wired** keyboard: 4.5 leaves `t2bce_vhci` out of the boot image, so the built-in one is dead at that prompt ([omarchy#17755](https://github.com/omacom/omarchy/issues/17755)) until `setup` (or `apply luks`) rebuilds it |
 | Bootloader | Automatic: a new **2 GiB `OMARCHY_EFI`** in the hole (source: `omarchy-iso` `configurator`). Never Apple’s EFI |
 | User | Remember the Linux password (autologin after LUKS hides it); Touch ID sudo later also needs the **macOS** password |
 
@@ -351,12 +352,13 @@ chmod +x bin/mbp16-1
 ./bin/mbp16-1 setup
 # one piece:
 ./bin/mbp16-1 apply gpu
+./bin/mbp16-1 apply luks       # LUKS keyboard only (apply gpu already does it)
 ./bin/mbp16-1 apply display
 ./bin/mbp16-1 apply desktop
 ./bin/mbp16-1 doctor
 ```
 
-**Do not** run Trigger → Hybrid GPU / `supergfxctl` (ASUS mux). **Do not** put PCI `by-path` in `AQ_DRM_DEVICES` (Aquamarine splits on `:`). **Do not** disable `eDP-1`/`eDP-2` by name. **Do not** write DPM `auto`.
+**Do not** run Trigger → Hybrid GPU / `supergfxctl` (ASUS mux). **Do not** put PCI `by-path` in `AQ_DRM_DEVICES` (Aquamarine splits on `:`). **Do not** disable `eDP-1`/`eDP-2` by name. **Do not** write DPM `auto`. **Do not** press OmApple's recommended buttons, see [10](#10-leave-out).
 
 ### C0. If the panel is black
 
@@ -390,7 +392,11 @@ Do not assume `/dev/dri/card1` is Intel. Card numbers move.
 ./bin/mbp16-1 apply gpu
 ```
 
-Writes gmux `force_igd`, DRM aliases, backlight udev, Aqua list, hides Hybrid GPU. Ends with **mkinitcpio + limine-update (1–3 min)**. Prefer `modprobe.d`, not cmdline-only `force_igd`.
+Writes gmux `force_igd`, DRM aliases, backlight udev, Aqua list, the LUKS keyboard drop-in, hides Hybrid GPU. Ends with **mkinitcpio + limine-update (1–3 min)**. Prefer `modprobe.d`, not cmdline-only `force_igd`.
+
+`force_igd` moves the lid to Intel **after** the firmware brought it up on AMD. i915 then drives it at **2 lanes, 18 bpp with dithering**. It works, but it is not the panel's native mode. [C2b](#c2b-optional-test-gpu-power-prefs-4-lane-panel) is the firmware-side test for 4 lanes.
+
+LUKS keyboard: on T2 Macs Omarchy 4.5 writes `/etc/mkinitcpio.conf.d/zz-omarchy-kernel-modules.conf`, which filters `t2bce_vhci` out of the `MODULES` that `apple-t2.conf` asked for. Without it the built-in keyboard is dead at the passphrase ([omarchy#17755](https://github.com/omacom/omarchy/issues/17755)). `apply gpu` (and `mbp16-1 apply luks` on its own) adds `zzz-mbp16-1-t2bce.conf`, which sorts **after** Omarchy's file and adds the module back. `?` keeps `linux-omarchy`, which has no `t2bce`, building. Omarchy's own file is left alone. `doctor` → Kernel lists the module inside the linux-t2 and linux-t2-mbp161 boot images.
 
 By hand (same files):
 
@@ -415,6 +421,9 @@ sudo udevadm trigger --subsystem-match=drm
 mkdir -p ~/.config/uwsm
 printf '%s\n' 'export AQ_DRM_DEVICES=/dev/dri/intel-igpu:/dev/dri/amd-dgpu' > ~/.config/uwsm/env-hyprland
 
+# LUKS keyboard (omarchy#17755): must sort after zz-omarchy-kernel-modules.conf
+printf '%s\n' 'MODULES+=(t2bce_vhci?)' | sudo tee /etc/mkinitcpio.conf.d/zzz-mbp16-1-t2bce.conf
+
 sudo mkinitcpio -P    # 1–3 min
 sudo limine-update
 ```
@@ -430,6 +439,36 @@ Hide Hybrid GPU (`~/.config/omarchy/extensions/omarchy-menu.jsonc`). Omarchy 4.0
 ```
 
 Brightness keys write **`gmux_backlight`**, not `appletb_backlight`. No ALS daemon (IIO `als` exists, unused). Idle DPMS and Hyprland `cm_auto_hdr=1` can look like auto-brightness. Omarchy idle is stock (screensaver 150 s, lock 300 s). Night light: Super+Ctrl+N.
+
+### C2b. Optional test: gpu-power-prefs (4-lane panel)
+
+Nothing to install, one reboot. Run it once C3 shows a working lid. `setup` keeps `force_igd` either way.
+
+The Apple NVRAM variable `gpu-power-prefs` (GUID `fa4ce28d-b62f-4c99-9cc3-6815686e30f9`) picks the GPU the firmware starts on. When it is `1`, the lid is on Intel from power-on and i915 trains the link itself. [KaiT2en](https://github.com/kaiT2en/KaiT2en-Fedora) uses this instead of `force_igd` and reports 4 lanes without dithering. Not tested on this machine yet.
+
+```bash
+V=/sys/firmware/efi/efivars/gpu-power-prefs-fa4ce28d-b62f-4c99-9cc3-6815686e30f9
+od -An -tu1 -j4 -N1 "$V" 2>/dev/null     # 1 = Intel, 0 = AMD, nothing = unset
+[ -e "$V" ] && sudo chattr -i "$V"        # efivarfs files are immutable
+sudo bash -c 'printf "\x07\x00\x00\x00\x01\x00\x00\x00" > "$1"' _ "$V"
+sudo chattr +i "$V"
+systemctl reboot
+```
+
+The first 4 bytes are the attributes (NV + boot + runtime); the last 4 are the value. After the reboot:
+
+```bash
+cat /sys/bus/pci/devices/0000:00:02.0/boot_vga     # 1 = the firmware started on Intel
+sudo sh -c 'grep -hE "lane_count|bpp=" /sys/kernel/debug/dri/*/i915_display_info' | sort -u
+# before:  dither=yes, bpp=18   lane_count=2
+# goal:    dither=no,  bpp≥24   lane_count=4
+./bin/mbp16-1 doctor                               # GPU → Boot GPU line
+```
+
+- **macOS rewrites the variable on each of its boots**, so after you boot macOS the test is undone and you rerun it. Persisting it is KaiT2en's `t2-gpu-preboot` UEFI app (it chainloads Fedora's shim; a Limine build is not part of this toolbox yet).
+- Black lid or no improvement: boot macOS once (that resets it), or write `\x00` in place of `\x01` as the fifth byte.
+- `doctor` only **reads** the variable (`od`), never writes it.
+- Not adopted: t2linux [PR #77](https://github.com/t2linux/linux-t2-patches/pull/77). It forces 4 lanes through an i915 quirk while `force_igd` is still in charge. It is unmerged and untested here, and it treats the symptom; `gpu-power-prefs` fixes the cause without a kernel patch.
 
 ### C3. Reboot without the amdgpu blacklist
 
@@ -657,7 +696,7 @@ If you already ran `setup` or `apply desktop`, D1–D3 files are in place. Still
 ./bin/mbp16-1 apply sleep
 ```
 
-Writes Limine drop-ins, logind lid (`HandleLidSwitch=suspend` undocked), systemd `MemorySleepMode=s2idle`, `usbcore autosuspend=-1`, and **`mbp16-1-lock-rearm.service`** (`sleep.target` ExecStop: `try-restart fprintd`, not the T2 transport). Then **mkinitcpio + limine-update (1–3 min)**, then `mbp16-1-limine-quiet` (`timeout: 1`, `quiet: yes` — 4.5 ships that already; the helper re-asserts it). Re-run that helper after **`omarchy update`** or `omarchy refresh limine` (both rewrite `/boot/limine.conf`). Do not use `timeout: 0`.
+Writes Limine drop-ins, logind lid (`HandleLidSwitch=suspend` undocked), systemd `MemorySleepMode=s2idle`, `usbcore autosuspend=-1`, a udev rule that keeps the Titan Ridge xHCI awake, and **`mbp16-1-lock-rearm.service`** (`sleep.target` ExecStop: `try-restart fprintd`, not the T2 transport). Then **mkinitcpio + limine-update (1–3 min)**, then `mbp16-1-limine-quiet` (`timeout: 1`, `quiet: yes` — 4.5 ships that already; the helper re-asserts it). Re-run that helper after **`omarchy update`** or `omarchy refresh limine` (both rewrite `/boot/limine.conf`). Do not use `timeout: 0`.
 
 **Do not suspend and do not close the lid** until `linux-t2-mbp161` is running. After D1, a lid close is a real suspend; stock `linux-t2` can SMU **`-62`**.
 
@@ -673,7 +712,12 @@ KERNEL_CMDLINE[default]+=" mem_sleep_default=s2idle pcie_ports=compat hid_apple.
 
 # /etc/modprobe.d/omarchy-usb-autosuspend.conf
 options usbcore autosuspend=-1
+
+# /etc/udev/rules.d/72-mbp16-1-titan-ridge.rules
+ACTION=="add|bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x8086", ATTR{device}=="0x15ec", ATTR{power/control}="on"
 ```
+
+Titan Ridge rule: the Thunderbolt 3 xHCI (`8086:15ec`) never signals PME from D3hot, so a USB-C plug made while it sleeps goes unseen. It is the udev form of [klizas](https://github.com/klizas/t2-kernel-patches) `0001-xhci-pci-t2-titan-ridge-no-runtime-pm`, and works on any kernel. It costs about **0.34 W** at idle. `bind` matters because `xhci_pci` allows runtime PM again when it probes. Delete the file to go back. `doctor` → Sleep shows `Titan Ridge awake`.
 
 ```ini
 # /etc/systemd/logind.conf.d/30-mbp16-1-lid.conf
@@ -971,6 +1015,8 @@ macOS remains SEP recovery. Reinstalling Omarchy means re-exporting keybags if `
 | `/etc/modprobe.d/hid_apple.conf` | `iso_layout=1 fnmode=2` |
 | `/etc/modprobe.d/brcmfmac.conf` | WPA workaround |
 | `/etc/modprobe.d/omarchy-usb-autosuspend.conf` | `autosuspend=-1` |
+| `/etc/mkinitcpio.conf.d/zzz-mbp16-1-t2bce.conf` | `t2bce_vhci?` back in the boot image, built-in keyboard at LUKS (sorts after Omarchy's `zz-omarchy-kernel-modules.conf`) |
+| `/etc/udev/rules.d/72-mbp16-1-titan-ridge.rules` | Titan Ridge xHCI `power/control=on`, USB-C plugs seen (~0.34 W) |
 | `/etc/udev/rules.d/70-intel-igpu.rules` | `/dev/dri/intel-igpu` |
 | `/etc/udev/rules.d/71-amd-dgpu.rules` | `/dev/dri/amd-dgpu` |
 | `/etc/udev/rules.d/90-omarchy-gmux-backlight.rules` | lid brightness |
@@ -1016,10 +1062,30 @@ Optional extras, not this recipe. Dangerous substitutes are called out in the ph
 | --- | --- |
 | Extra USB-C heads / Studio Display | Different DP/DSC; do not copy DPM `high`/`auto` |
 | `mbp161-amdgpu-dpm-governor` | Only if work runs on the 5500M |
-| Titan Ridge `mbp161_tb_bypass=1` | Not needed when 0005 + display is clean |
+| Titan Ridge `mbp161_tb_bypass=1` | Not needed when 0005 + display is clean. The `72-mbp16-1-titan-ridge` rule (D1) covers the unseen-plug case on any kernel |
+| t2linux [PR #77](https://github.com/t2linux/linux-t2-patches/pull/77) (i915 forced 4 lanes) | Unmerged; works around `force_igd`. Test `gpu-power-prefs` instead ([C2b](#c2b-optional-test-gpu-power-prefs-4-lane-panel)) |
+| KaiT2en Arch packages (arch-mact2 tag `kait2en`) | Upstream ships them “with no support”, pinned to `linux-t2` 7.2.11. Not before C2b says 4 lanes |
+| [OmApple](https://github.com/bramvanoploo/omarchy-t2-linux) recommended buttons | See below |
 | Linux ALS / clight / wluma | Unused on purpose |
 | Changing idle 150/300 s | Stock Omarchy |
 | `hid_appletb_kbd` | Optional config-1 media-strip |
+
+**OmApple** (bramvanoploo's Omarchy panel for Apple Macs): do **not** press *Apply recommended options*, *recommended suspend* or *recommended battery*. They rewrite files this toolbox owns:
+
+- `mem_sleep_default=deep` in `/etc/limine-entry-tool.d/t2-mac.conf`, plus `/etc/tmpfiles.d/omarchy-t2-mem-sleep.conf` and `/etc/systemd/sleep.conf.d/30-t2-sleep.conf`. It also writes `deep` to `/sys/power/mem_sleep` **at once**. That is the `deep` sleep D1 forbids.
+- `/etc/modprobe.d/omarchy-usb-autosuspend.conf` overwritten, which drops `autosuspend=-1`.
+- Its hibernate delay writes `/etc/systemd/logind.conf.d/30-t2-lid.conf` (`suspend-then-hibernate`), which sorts after this toolbox's lid file and wins.
+
+*Apply T2 fixes* is harmless here (`pcie_ports=compat`, already set; the T2 Ethernet hidden from NetworkManager). Its polkit rule (`setup-system`) lets its root helper run without a password: a security trade-off, your call.
+
+`doctor` → Sleep fails on the `deep` and USB parts. If you pressed one, **do not suspend**, then:
+
+```bash
+sudo rm -f /etc/tmpfiles.d/omarchy-t2-mem-sleep.conf /etc/systemd/sleep.conf.d/30-t2-sleep.conf /etc/systemd/logind.conf.d/30-t2-lid.conf
+./bin/mbp16-1 apply sleep            # rewrites t2-mac.conf and omarchy-usb-autosuspend.conf
+echo s2idle | sudo tee /sys/power/mem_sleep
+./bin/mbp16-1 doctor
+```
 
 ---
 
@@ -1034,5 +1100,10 @@ Optional extras, not this recipe. Dangerous substitutes are called out in the ph
 | Lid names | [sk3pper](https://sk3pper.github.io/posts/workstation-setup/lid-close-freeze-on-t2-mbp19/); [omarchy#7855](https://github.com/omacom/omarchy/discussions/7855) |
 | Kernel upstream | [linux-t2-arch](https://github.com/NoaHimesaka1873/linux-t2-arch) `main` `7.2.14.arch1-1` pins [t2linux patches](https://github.com/t2linux/linux-t2-patches) `KVER=7.3` ([#301](https://github.com/NoaHimesaka1873/linux-t2-arch/pull/301)) |
 | Sleep kernel | [yuters `e77b03f`](https://github.com/yuters/mbp161-hybrid-graphics/blob/e77b03fe0902216a7544208f2988b4cd391423a1/kernel/README.md). Not [`main`](https://github.com/yuters/mbp161-hybrid-graphics) (since `e77b03f`: Falcon SMC, `cdc_ncm` S3, hibernation, 4K@60 adapter, t2bce S4 — still not used here). [yuters#1](https://github.com/yuters/mbp161-hybrid-graphics/issues/1) |
+| Boot GPU | [KaiT2en](https://github.com/kaiT2en/KaiT2en-Fedora) (deqrocks): `gpu-power-prefs` + `t2-gpu-preboot` instead of `force_igd`; t2linux [PR #77](https://github.com/t2linux/linux-t2-patches/pull/77) (not adopted) |
+| LUKS keyboard | [omarchy#17755](https://github.com/omacom/omarchy/issues/17755) (`zz-omarchy-kernel-modules.conf` drops `t2bce_vhci`) |
+| Titan Ridge | [klizas/t2-kernel-patches](https://github.com/klizas/t2-kernel-patches) `0001-xhci-pci-t2-titan-ridge-no-runtime-pm` (udev form here) |
+| Omarchy T2 panel | [bramvanoploo/omarchy-t2-linux](https://github.com/bramvanoploo/omarchy-t2-linux) (OmApple; recommended buttons conflict, see [10](#10-leave-out)) |
+| Visual notes (French, 2026-11-08) | [synthèse](docs/2026-11-08-synthese-omarchy-t2.html), [proposition](docs/2026-11-08-proposition-omarchy-t2.html). Open them locally; GitHub shows HTML as source |
 | Touch ID | [jean-humann `mbp161-mixed-envelope`](https://github.com/jean-humann/t2-touchid-linux/tree/mbp161-mixed-envelope); [`docs/PAM_AUTH.md`](https://github.com/jean-humann/t2-touchid-linux/blob/mbp161-mixed-envelope/docs/PAM_AUTH.md) |
 | Touch ID, other stacks | [t2linux Touch ID](https://wiki.t2linux.org/guides/touchid/) (KaiT2en, Ubuntu/Debian, macOS-enrolled fingers); [macintog/t2touch](https://github.com/macintog/t2touch) (Linux-only, no macOS: [#16](https://github.com/macintog/t2touch/issues/16), [#23](https://github.com/macintog/t2touch/issues/23)) |

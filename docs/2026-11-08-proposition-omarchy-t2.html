@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MacBook Pro 16,1 : proposition d'installation plus à jour</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-size:14px;line-height:1.45}
+.page{display:flex;flex-direction:column;gap:32px}
+section{display:flex;flex-direction:column;gap:12px}
+h2{font-size:16px;font-weight:650;margin:0;display:flex;align-items:baseline;gap:8px}
+h2 .n{font-family:var(--font-mono);font-size:12px;color:var(--muted-foreground);font-weight:500}
+h3{font-size:14px;margin:0;font-weight:650}
+p{margin:0}
+.lede{color:var(--muted-foreground);font-size:13px}
+code,.mono{font-family:var(--font-mono);font-size:12px}
+code{background:var(--code-background);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+.box{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.muted{color:var(--muted-foreground)}
+.small{font-size:12px}
+
+/* status chips: icon + label, never colour alone */
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;line-height:1;padding:4px 8px;border-radius:999px;white-space:nowrap;border:1px solid var(--border);font-weight:550;background:var(--muted)}
+.chip i{font-style:normal;font-weight:700}
+.chip.ok{background:color-mix(in srgb,var(--success) 14%,transparent);border-color:color-mix(in srgb,var(--success) 40%,transparent)}
+.chip.ok i{color:var(--success)}
+.chip.bad{background:color-mix(in srgb,var(--destructive) 14%,transparent);border-color:color-mix(in srgb,var(--destructive) 40%,transparent)}
+.chip.bad i{color:var(--destructive)}
+.chip.warn{background:color-mix(in srgb,var(--warning) 16%,transparent);border-color:color-mix(in srgb,var(--warning) 45%,transparent)}
+.chip.warn i{color:var(--warning)}
+.chip.info{background:color-mix(in srgb,var(--info) 14%,transparent);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+.chip.info i{color:var(--info)}
+.chip.pr{background:color-mix(in srgb,var(--primary) 16%,transparent);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}
+.chip.pr i{color:var(--primary)}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.tile{display:flex;flex-direction:column;gap:2px}
+.tile .lab{font-size:12px;color:var(--muted-foreground)}
+.tile .val{font-size:26px;font-weight:650;letter-spacing:-.01em;font-variant-numeric:tabular-nums;line-height:1.2;margin:4px 0 2px}
+.tile .sub{font-size:12px;color:var(--muted-foreground)}
+.tile .val i{font-style:normal;font-size:18px;margin-right:4px}
+.tile.bad .val i{color:var(--destructive)}
+.tile.warn .val i{color:var(--warning)}
+.tile.ok .val i{color:var(--success)}
+@media (max-width:620px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* display comparison */
+.cmp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.cmp .box{display:flex;flex-direction:column;gap:10px}
+.cmp .box.bad{border-color:color-mix(in srgb,var(--destructive) 55%,var(--border))}
+.cmp .box.warn{border-color:color-mix(in srgb,var(--warning) 60%,var(--border))}
+.cmp .box.ok{border-color:color-mix(in srgb,var(--success) 55%,var(--border));background:color-mix(in srgb,var(--success) 6%,var(--card))}
+.cmp .who{font-size:11px;font-weight:600;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.04em}
+.lanes{display:flex;gap:2px}
+.lanes span{flex:1;height:14px;border-radius:4px;background:var(--muted);border:1px dashed var(--border)}
+.lanes span.on{background:var(--foreground);border:0;opacity:.82}
+.spec{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px;margin:0}
+.spec dt{color:var(--muted-foreground)}
+.spec dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+@media (max-width:620px){.cmp{grid-template-columns:1fr}}
+
+/* tiers */
+.tier{display:grid;grid-template-columns:52px minmax(0,1fr);gap:14px}
+.tag{display:flex;flex-direction:column;align-items:center;gap:6px}
+.tag b{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-family:var(--font-mono);font-size:14px;font-weight:700;background:var(--muted);border:1px solid var(--border)}
+.tier.rec .tag b{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+.tier.now .tag b{background:var(--foreground);color:var(--background);border-color:var(--foreground)}
+.tag::after{content:"";flex:1;width:2px;background:var(--border);border-radius:2px}
+.tier:last-child .tag::after{display:none}
+.tbody{display:flex;flex-direction:column;gap:10px;padding-bottom:6px}
+.thead{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.thead h3{font-size:15px}
+.items{list-style:none;margin:0;padding:0;border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+.items li{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:4px 10px;align-items:start;padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px}
+.items li:last-child{border-bottom:0}
+.items .id{font-family:var(--font-mono);font-size:11.5px;color:var(--muted-foreground);padding-top:2px}
+.items .what small{display:block;color:var(--muted-foreground);font-size:12px;margin-top:1px}
+.items .st{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;max-width:230px}
+.items li.star{background:color-mix(in srgb,var(--primary) 9%,transparent)}
+.items li.star .id{color:var(--primary);font-weight:700}
+@media (max-width:620px){.items li{grid-template-columns:30px minmax(0,1fr)}.items .st{grid-column:2;justify-content:flex-start}}
+
+/* boot chain */
+.chain{display:flex;flex-direction:column;align-items:stretch}
+.node{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center}
+.node b{font-family:var(--font-mono);font-size:12.5px;font-weight:650;overflow-wrap:anywhere}
+.node span{font-size:12px;color:var(--muted-foreground);grid-column:1}
+.node .chip{grid-row:1 / span 2;grid-column:2;color:var(--foreground)}
+.node.new{border-color:color-mix(in srgb,var(--primary) 60%,var(--border))}
+.node.ok{border-color:color-mix(in srgb,var(--success) 55%,var(--border))}
+.arr{color:var(--muted-foreground);font-size:12px;padding:4px 0 4px 22px;display:flex;align-items:center;gap:8px}
+.arr::before{content:"↓";font-size:14px;color:var(--muted-foreground)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.bypass{border:1px dashed color-mix(in srgb,var(--warning) 70%,var(--border));background:var(--warning-surface);border-radius:var(--radius);padding:12px 16px;display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.bypass b{display:flex;align-items:center;gap:6px}
+.bypass b i{font-style:normal;color:var(--warning)}
+.gains{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+@media (max-width:620px){.gains{grid-template-columns:1fr}.split{grid-template-columns:1fr}}
+.risks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px}
+.risks li{display:grid;grid-template-columns:14px minmax(0,1fr);gap:8px}
+.risks li i{font-style:normal;font-weight:700;color:var(--warning)}
+.risks li.x i{color:var(--destructive)}
+
+/* table */
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:12px;color:var(--muted-foreground);font-weight:600;padding:6px 10px 6px 0;border-bottom:1px solid var(--border)}
+td{padding:9px 10px 9px 0;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.k{font-family:var(--font-mono);font-size:12px;font-weight:600;white-space:nowrap}
+td small{display:block;color:var(--muted-foreground);font-size:12px;margin-top:2px}
+
+/* decision */
+.dec{display:flex;flex-direction:column;gap:0}
+.dnode{align-self:center;max-width:460px;width:100%;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;font-size:13px}
+.dnode small{display:block;color:var(--muted-foreground);font-size:12px}
+.dnode.q{border-color:color-mix(in srgb,var(--primary) 60%,var(--border));background:color-mix(in srgb,var(--primary) 8%,var(--card));font-weight:600}
+.darr{text-align:center;color:var(--muted-foreground);font-size:14px;line-height:1;padding:6px 0}
+.forks{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fork{display:flex;flex-direction:column;align-items:stretch}
+.fork .lbl{text-align:center;font-size:12px;font-weight:650;padding:6px 0;color:var(--muted-foreground)}
+.fork .lbl i{font-style:normal}
+.fork.y .lbl i{color:var(--success)}
+.fork.n .lbl i{color:var(--destructive)}
+.fork .dnode{max-width:none}
+.fork.y .dnode{border-color:color-mix(in srgb,var(--primary) 60%,var(--border))}
+.later{margin-top:12px;text-align:center;font-size:12px;color:var(--muted-foreground)}
+
+.no{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.no div{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;font-size:13px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px}
+.no div i{font-style:normal;font-weight:700;color:var(--destructive)}
+.no small{display:block;color:var(--muted-foreground);font-size:12px}
+@media (max-width:620px){.no{grid-template-columns:1fr}}
+.legend{display:flex;flex-wrap:wrap;gap:6px 8px;font-size:12px;color:var(--muted-foreground);align-items:center}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- 1 -->
+<section>
+  <h2><span class="n">01</span>Où on en est (8 nov. 2026)</h2>
+  <div class="tiles">
+    <div class="box tile ok"><div class="lab">Ton noyau dédié</div><div class="val"><i>✓</i>7.2.3</div><div class="sub">linux-t2-mbp161 + yuters 0001–0005, prouvé sur ta machine</div></div>
+    <div class="box tile warn"><div class="lab">linux-t2 (installé par Omarchy)</div><div class="val"><i>!</i>7.2.11</div><div class="sub">bloqué : CI cassée depuis le 19/10</div></div>
+    <div class="box tile bad"><div class="lab">Branche 7.2</div><div class="val"><i>✕</i>EOL</div><div class="sub">7.2.15 (01/11) est la dernière</div></div>
+    <div class="box tile"><div class="lab">Stable</div><div class="val">7.3.3</div><div class="sub">aucun linux-t2 7.3 pour l'instant</div></div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section>
+  <h2><span class="n">02</span>Correction : l'écran interne</h2>
+  <p class="lede">Dans la synthèse précédente, je recommandais <code>force_igd</code> + PR #77. Selon deqrocks (le mainteneur de KaiT2en), c'est <code>force_igd</code> qui provoque le mode dégradé de la dalle.</p>
+  <div class="cmp">
+    <div class="box bad">
+      <div class="who">Aujourd'hui · force_igd</div>
+      <div class="lanes" aria-label="2 voies sur 4"><span class="on"></span><span class="on"></span><span></span><span></span></div>
+      <dl class="spec"><dt>Voies eDP</dt><dd>2 / 4</dd><dt>Profondeur</dt><dd>18 bpp</dd><dt>Tramage</dt><dd>oui</dd></dl>
+      <span class="chip bad" style="align-self:flex-start"><i>✕</i>dégradé</span>
+    </div>
+    <div class="box warn">
+      <div class="who">PR #77 · quirk 106b:019c</div>
+      <div class="lanes" aria-label="4 voies sur 4"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div>
+      <dl class="spec"><dt>Voies eDP</dt><dd>4 / 4</dd><dt>Profondeur</dt><dd>30 bpp</dd><dt>Base</dt><dd>garde force_igd</dd></dl>
+      <span class="chip warn" style="align-self:flex-start"><i>!</i>rustine sur force_igd</span>
+    </div>
+    <div class="box ok">
+      <div class="who">NVRAM · gpu-power-prefs = 1</div>
+      <div class="lanes" aria-label="4 voies sur 4"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div>
+      <dl class="spec"><dt>Voies eDP</dt><dd>4 / 4</dd><dt>Profondeur</dt><dd>24 bpp</dd><dt>Tramage</dt><dd>non, même après S3</dd></dl>
+      <span class="chip ok" style="align-self:flex-start"><i>✓</i>correction propre</span>
+    </div>
+  </div>
+  <p class="small muted">Avec cette variable, l'iGPU Intel devient le GPU de démarrage. Mais macOS la remet à zéro à chacun de ses démarrages : il faut donc un préboot (palier 2). Le test ★ du palier 0 suffit à vérifier l'effet.</p>
+</section>
+
+<!-- 3 -->
+<section>
+  <h2><span class="n">03</span>Les 4 paliers</h2>
+  <div class="legend">
+    <span class="chip ok"><i>✓</i>vérifié</span>
+    <span class="chip info"><i>◐</i>partiellement vérifié</span>
+    <span class="chip warn"><i>?</i>non testé</span>
+    <span class="chip"><i>✎</i>à écrire</span>
+    <span class="chip pr"><i>➜</i>proposé pour PR #1</span>
+  </div>
+
+  <div class="tier now">
+    <div class="tag"><b>P0</b></div>
+    <div class="tbody">
+      <div class="thead"><h3>Maintenant, sans changer de noyau</h3><span class="chip ok"><i>✓</i>sûr</span></div>
+      <ul class="items">
+        <li><span class="id">0.1</span><span class="what">Correctif clavier LUKS dans <code>setup</code> et <code>doctor</code><small>Y compris l'image de boot de linux-t2-mbp161. Sans lui, pas de clavier interne pour saisir la phrase de passe.</small></span><span class="st"><span class="chip bad"><i>!</i>bloquant</span><span class="chip warn"><i>?</i>vient de #17755</span><span class="chip pr"><i>➜</i>PR #1</span></span></li>
+        <li><span class="id">0.2</span><span class="what">Règle udev pour le Titan Ridge <code>8086:15ec</code><small><code>power/control=on</code>. Remplace en partie yuters 0005, avec n'importe quel noyau.</small></span><span class="st"><span class="chip"><i>✎</i>simple</span><span class="chip pr"><i>➜</i>PR #1</span></span></li>
+        <li><span class="id">0.3</span><span class="what"><code>doctor</code> lit <code>gpu-power-prefs</code> (lecture seule)<small>Indique sur quel GPU la machine a démarré.</small></span><span class="st"><span class="chip"><i>✎</i>à écrire</span><span class="chip pr"><i>➜</i>PR #1</span></span></li>
+        <li><span class="id">0.4</span><span class="what">README : retirer la piste PR #77 / force_igd, ajouter l'avertissement OmApple</span><span class="st"><span class="chip"><i>✎</i>doc</span><span class="chip pr"><i>➜</i>PR #1</span></span></li>
+        <li class="star"><span class="id">★</span><span class="what">Test <code>gpu-power-prefs = 1</code> avec le noyau actuel<small>Écrire la variable depuis Linux, puis redémarrer une fois. S'annule tout seul au prochain démarrage de macOS. Décide entre le palier 1 et le palier 2.</small></span><span class="st"><span class="chip info"><i>◐</i>octets repris du préboot</span></span></li>
+        <li><span class="id">0.5</span><span class="what">DSP audio : micro (kazeshini178) ou profil haut-parleurs 16,1 d'arch-mact2</span><span class="st"><span class="chip warn"><i>?</i>à comparer</span></span></li>
+        <li><span class="id">0.6</span><span class="what">Réglage Wi-Fi bentsignal (IPv6 coupé, powersave 2)</span><span class="st"><span class="chip warn"><i>?</i>avant/après</span></span></li>
+        <li><span class="id">0.7</span><span class="what">SSDT walles <code>tbt-peg12</code><small>Sortie de veille de 23 s à 5 s. À régénérer depuis ton propre firmware.</small></span><span class="st"><span class="chip"><i>⏱</i>plus tard</span></span></li>
+        <li><span class="id">0.8</span><span class="what"><code>t2-touchid</code> (arch-mact2) comparé à notre <code>apply touchid</code></span><span class="st"><span class="chip"><i>◎</i>veille</span></span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tier">
+    <div class="tag"><b>P1</b></div>
+    <div class="tbody">
+      <div class="thead"><h3>Rafraîchir le noyau dédié</h3><span class="chip"><i>⛑</i>filet de sécurité</span></div>
+      <ul class="items">
+        <li><span class="id">1.1</span><span class="what">linux-t2-mbp161 <b>7.2.11</b> = t2linux e167207 + yuters 0001–0005 + correction <code>sed</code><small>La même base que linux-t2 et que le paquet amdgpu de KaiT2en.</small></span><span class="st"><span class="chip info"><i>◐</i>prepare ✓, pas compilé</span></span></li>
+        <li><span class="id">1.2</span><span class="what">Variante <b>7.2.15</b> (dernière 7.2)</span><span class="st"><span class="chip warn"><i>?</i>prepare à faire</span></span></li>
+        <li><span class="id">1.3</span><span class="what">Patchs repris de KaiT2en et klizas<small>Wi-Fi BCM4364 sans TXBF + délai PS 200 ms · priorité ACL Bluetooth · PSR dalle Apple + luminosité gmux · veille de la Touch Bar</small></span><span class="st"><span class="chip warn"><i>?</i>non testé sur 7.2</span></span></li>
+        <li><span class="id">1.4</span><span class="what">Pas de PR #77. Si le test ★ est concluant : retirer yuters 0001/0002 et <code>force_igd</code></span><span class="st"><span class="chip"><i>✎</i>dépend de ★</span></span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tier rec">
+    <div class="tag"><b>P2</b></div>
+    <div class="tbody">
+      <div class="thead"><h3>Plus de noyau dédié : linux-t2 standard + pile KaiT2en</h3><span class="chip pr"><i>★</i>recommandé</span></div>
+      <ul class="items">
+        <li><span class="id">2.1</span><span class="what"><code>t2-gpu-preboot</code> adapté à Limine<small>Rust/UEFI. On remplace <code>\EFI\fedora\…</code> par <code>\EFI\limine\limine_x64.efi</code>, puis <code>\EFI\BOOT\BOOTX64.EFI</code>. Entrée efibootmgr en tête.</small></span><span class="st"><span class="chip info"><i>◐</i>source lu</span></span></li>
+        <li><span class="id">2.2</span><span class="what"><code>t2gmux-dkms</code><small>Remplace <code>apple_gmux</code> (le blackliste et ajoute <code>MODULES+=(t2gmux)</code>).</small></span><span class="st"><span class="chip warn"><i>?</i>Arch, sans support</span></span></li>
+        <li><span class="id">2.3</span><span class="what"><code>kait2en-gpu-runtime-pm-t2</code><small>amdgpu patché pour que l'AMD s'éteigne complètement (D3cold), avec les correctifs 16,1 (UCLK de la VBIOS, pas de découpage MPC). Figé sur linux-t2 7.2.11.</small></span><span class="st"><span class="chip warn"><i>?</i>Arch, sans support</span></span></li>
+        <li><span class="id">2.4</span><span class="what"><code>kait2en-wireless-runtime-pm-t2</code> (optionnel)<small>Fournit probablement les patchs Wi-Fi et Bluetooth de 1.3.</small></span><span class="st"><span class="chip warn"><i>?</i>à confirmer</span></span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tier">
+    <div class="tag"><b>P3</b></div>
+    <div class="tbody">
+      <div class="thead"><h3>7.3 / 7.4, quand l'écosystème suit</h3><span class="chip"><i>⏱</i>attente</span></div>
+      <ul class="items">
+        <li><span class="id">3.1</span><span class="what">Attendre un linux-t2 7.3<small>La PR #301 en est encore à 7.2.14, en attente d'autorisation pour lancer la CI.</small></span><span class="st"><span class="chip"><i>⏱</i>externe</span></span></li>
+        <li><span class="id">3.2</span><span class="what">Patchs à inclure<small>AER 7209846a169f (régression propre à 7.3) · correctifs S3 · série klizas (déjà sur 7.3) · 7.4 : liens Thunderbolt Apple et hid-apple qui ignore le trackpad T2</small></span><span class="st"><span class="chip"><i>✎</i>liste prête</span></span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section>
+  <h2><span class="n">04</span>Palier 2 : la chaîne de démarrage</h2>
+  <div class="split">
+    <div class="chain">
+      <div class="node"><b>Firmware Apple</b><span>BootOrder[0]</span></div>
+      <div class="arr">lance</div>
+      <div class="node new"><b>\EFI\kait2en\t2-gpu-preboot.efi</b><span>gpu-power-prefs ≠ 1 ? on l'écrit + 1 redémarrage à chaud</span><span class="chip pr"><i>+</i>nouveau</span></div>
+      <div class="arr">chaîne vers</div>
+      <div class="node"><b>\EFI\limine\limine_x64.efi</b><span>Limine d'Omarchy, inchangé</span></div>
+      <div class="arr">démarre</div>
+      <div class="node"><b>linux-t2 7.2.11 standard</b><span>plus de linux-t2-mbp161 à compiler</span></div>
+      <div class="arr">charge</div>
+      <div class="node new"><b>t2gmux + amdgpu patché</b><span>DKMS / module dans <code>updates/</code></span><span class="chip pr"><i>+</i>nouveau</span></div>
+      <div class="arr">résultat</div>
+      <div class="node ok"><b>Intel → écran · AMD → D3cold</b><span>l'AMD se réveille pour PRIME ou un écran externe</span><span class="chip ok"><i>✓</i>cible</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="bypass">
+        <b><i>!</i>Chemin de contournement</b>
+        <span>Option au démarrage → « EFI Boot » → <code>\EFI\BOOT\BOOTX64.EFI</code></span>
+        <span class="muted">C'est Limine, réécrit à chaque mise à jour (<code>ENABLE_LIMINE_FALLBACK=yes</code>). Il saute le préboot : si macOS a été démarré juste avant, ce démarrage-là se fait sur l'AMD.</span>
+      </div>
+      <div class="gains">
+        <div class="box tile" style="padding:12px 12px"><div class="lab">Écran</div><div class="val" style="font-size:20px">4 voies</div><div class="sub">24 bpp, sans tramage</div></div>
+        <div class="box tile" style="padding:12px 12px"><div class="lab">AMD au repos</div><div class="val" style="font-size:20px">~12 W</div><div class="sub">gagnés, mesure 15,1 ; 16,1 non mesuré</div></div>
+        <div class="box tile" style="padding:12px 12px"><div class="lab">Compilation</div><div class="val" style="font-size:20px">0</div><div class="sub">plus de 40 min par mise à jour</div></div>
+      </div>
+      <div class="box">
+        <h3 style="margin-bottom:8px">Risques réels</h3>
+        <ul class="risks">
+          <li><i>!</i><span>La blacklist <code>apple_gmux</code> et <code>MODULES+=(t2gmux)</code> s'appliquent à <b>tous</b> les noyaux. Un test A/B avec linux-t2-mbp161 n'est donc pas gratuit (même genre de piège mkinitcpio que le bug LUKS).</span></li>
+          <li><i>!</i><span>amdgpu est figé sur 7.2.11 : les mises à jour de linux-t2 sont bloquées jusqu'au repackaging.</span></li>
+          <li><i>!</i><span>Validé seulement sur Fedora, pas sur Arch avec Hyprland. Paquets Arch « with no support ».</span></li>
+          <li><i>!</i><span>Titan Ridge (yuters 0005) n'est pas couvert côté Arch : la règle udev 0.2 reste nécessaire.</span></li>
+          <li><i>!</i><span>Licence à vérifier. Je récupérerais le source à un commit précis plutôt que de le copier dans le repo.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section>
+  <h2><span class="n">05</span>Que deviennent les patchs yuters au palier 2 ?</h2>
+  <div class="box tw">
+    <table>
+      <thead><tr><th>Patch</th><th>Rôle aujourd'hui</th><th>Remplacé par</th><th>État</th></tr></thead>
+      <tbody>
+        <tr><td class="k">0001</td><td>bascule le mux sur l'iGPU avant DRM</td><td>préboot + gpu-power-prefs, t2gmux</td><td><span class="chip info"><i>◐</i>dépend de ★</span></td></tr>
+        <tr><td class="k">0002</td><td>pas de fbdev amdgpu</td><td>inutile : l'iGPU est le GPU de démarrage</td><td><span class="chip info"><i>◐</i>dépend de ★</span></td></tr>
+        <tr><td class="k">0003</td><td>ignore l'eDP fantôme côté AMD</td><td>KaiT2en 0005 / 0007 (amdgpu patché)</td><td><span class="chip warn"><i>?</i>à vérifier</span></td></tr>
+        <tr><td class="k">0004</td><td>contournement s2idle PCI</td><td>runtime PM GMUX / D3cold</td><td><span class="chip warn"><i>?</i>à vérifier</span></td></tr>
+        <tr><td class="k">0005</td><td>séquence d'alimentation Titan Ridge</td><td>pas packagé côté Arch → règle udev 0.2 ; en amont en 7.4</td><td><span class="chip warn"><i>!</i>partiel</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 6 -->
+<section>
+  <h2><span class="n">06</span>Ordre proposé</h2>
+  <div class="dec">
+    <div class="dnode">Réinstallation avec la toolbox<small>noyau dédié 7.2.3, celui qui est prouvé</small></div>
+    <div class="darr">↓</div>
+    <div class="dnode">PR #1 : 0.1 · 0.2 · 0.3 · 0.4<small>LUKS, udev, lecture gpu-power-prefs, README</small></div>
+    <div class="darr">↓</div>
+    <div class="dnode q">★ Test gpu-power-prefs : la dalle passe-t-elle à 4 voies ?<small style="font-weight:400">1 redémarrage, réversible</small></div>
+    <div class="forks">
+      <div class="fork y"><div class="lbl"><i>✓</i> oui</div><div class="dnode">Palier 2 dans une PR séparée<small>préboot Limine + t2gmux + amdgpu ; test de veille et de consommation</small></div></div>
+      <div class="fork n"><div class="lbl"><i>✕</i> non</div><div class="dnode">Palier 1<small>noyau dédié 7.2.11 (prepare déjà vérifié)</small></div></div>
+    </div>
+    <div class="later">Puis le palier 3 quand un linux-t2 7.3 sort.</div>
+  </div>
+</section>
+
+<!-- 7 -->
+<section>
+  <h2><span class="n">07</span>À éviter</h2>
+  <div class="no">
+    <div><i>✕</i><span>Un 7.3 maison maintenant<small>yuters 0003 ne s'applique plus, amdgpu KaiT2en est figé sur 7.2.11, et 7.3 apporte la régression AER.</small></span></div>
+    <div><i>✕</i><span>Tout le noyau CachyOS de klizas<small>On remplacerait le noyau entier par celui d'une autre distribution.</small></span></div>
+    <div><i>✕</i><span>PR #77 comme solution pour l'écran<small>Elle garde force_igd, la cause du mode 2 voies.</small></span></div>
+    <div><i>✕</i><span>Ouvrir des issues ou PR chez KaiT2en<small>Le projet refuse ce qui est généré par IA.</small></span></div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

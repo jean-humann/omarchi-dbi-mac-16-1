@@ -20,6 +20,41 @@ rebuild_boot() {
   kernel_limine_quiet
 }
 
+# Omarchy 4.5 drops t2bce_vhci from every boot image (omacom/omarchy#17755),
+# so the built-in keyboard is dead at the LUKS prompt. The drop-in sorts after
+# zz-omarchy-kernel-modules.conf and adds it back as optional. Callers rebuild.
+install_luks_keyboard() {
+  install_root_file "$FILES/etc/mkinitcpio.conf.d/zzz-mbp16-1-t2bce.conf" \
+    /etc/mkinitcpio.conf.d/zzz-mbp16-1-t2bce.conf
+}
+
+apply_luks() {
+  require_16_1
+  is_linux || die "apply luks is Linux-only"
+  ensure_core
+  expect "LUKS keyboard (t2bce_vhci in the boot image)" \
+    "Adds t2bce_vhci? after Omarchy's zz-omarchy-kernel-modules.conf (omacom/omarchy#17755)." \
+    "Ends with mkinitcpio + limine-update (1–3 min). Keep the USB keyboard for the next unlock." \
+    "Do not edit zz-omarchy-kernel-modules.conf by hand; this drop-in wins without touching it."
+  install_luks_keyboard
+  rebuild_boot
+  if ((APPLY_BUNDLE == 0)); then
+    confirm_ready "Next boot" \
+      "Type the LUKS passphrase on the built-in keyboard once to confirm." \
+      "Then: mbp16-1 doctor   (Kernel → LUKS keyboard reads each boot image)"
+  fi
+}
+
+# Titan Ridge xHCI (8086:15ec) stays in D0: in D3hot it never signals PME on a
+# USB-C plug. ~0.34 W idle (klizas). Re-run add so this boot picks it up.
+install_titan_ridge_awake() {
+  install_root_file "$FILES/etc/udev/rules.d/72-mbp16-1-titan-ridge.rules" \
+    /etc/udev/rules.d/72-mbp16-1-titan-ridge.rules
+  run as_root udevadm control --reload-rules
+  run as_root udevadm trigger --action=add --subsystem-match=pci \
+    --attr-match=vendor=0x8086 --attr-match=device=0x15ec || true
+}
+
 apply_gpu() {
   require_16_1
   is_linux || die "apply gpu is Linux-only"
@@ -27,6 +62,7 @@ apply_gpu() {
   precheck_gpu
   expect "GPU routing (Intel lid, AMD loaded)" \
     "Writes gmux force_igd, DRM aliases, backlight udev, Aqua list, hides Hybrid GPU." \
+    "Also the LUKS keyboard drop-in (t2bce_vhci, omacom/omarchy#17755)." \
     "Ends with mkinitcpio + limine-update (1–3 min)." \
     "Do not: Omarchy Hybrid GPU / supergfxctl, PCI by-path in AQ_DRM_DEVICES, DPM auto."
   install_root_file "$FILES/etc/modprobe.d/apple-gmux.conf" /etc/modprobe.d/apple-gmux.conf
@@ -34,6 +70,7 @@ apply_gpu() {
   install_root_file "$FILES/etc/udev/rules.d/71-amd-dgpu.rules" /etc/udev/rules.d/71-amd-dgpu.rules
   install_root_file "$FILES/etc/udev/rules.d/90-omarchy-gmux-backlight.rules" /etc/udev/rules.d/90-omarchy-gmux-backlight.rules
   install_user_file "$FILES/home/.config/uwsm/env-hyprland" "$HOME/.config/uwsm/env-hyprland"
+  install_luks_keyboard
   hide_hybrid_gpu
   reload_udev
   rebuild_boot
@@ -312,10 +349,12 @@ apply_sleep() {
   resolve_layout
   expect "Sleep policy (s2idle)" \
     "Writes Limine drop-ins, logind lid, systemd MemorySleepMode, usbcore autosuspend=-1, lock-rearm." \
+    "Keeps the Titan Ridge xHCI awake so USB-C plugs are seen (~0.34 W idle)." \
     "Quiets Limine after limine-update. Do not suspend on stock linux-t2." \
     "Do not close the lid until linux-t2-mbp161 is running — after this, lid-close is a real suspend." \
     "Do not put mem_sleep_default=deep back. After SMU -62, do not suspend again."
   install_root_file "$FILES/etc/modprobe.d/omarchy-usb-autosuspend.conf" /etc/modprobe.d/omarchy-usb-autosuspend.conf
+  install_titan_ridge_awake
   install_root_file "$FILES/etc/limine-entry-tool.d/t2-mac.conf" /etc/limine-entry-tool.d/t2-mac.conf
   write_sleep_dropin
   install_root_file "$FILES/etc/systemd/logind.conf.d/30-mbp16-1-lid.conf" /etc/systemd/logind.conf.d/30-mbp16-1-lid.conf

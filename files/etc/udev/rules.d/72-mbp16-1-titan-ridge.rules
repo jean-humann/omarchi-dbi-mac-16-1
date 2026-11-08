@@ -1,0 +1,8 @@
+# mbp16-1: keep the Titan Ridge xHCI (JHL7540, 8086:15ec) out of runtime suspend.
+#
+# In D3hot it never signals PME on a USB-C plug, so external ports see
+# nothing: no enumeration, no dmesg line (klizas/t2-kernel-patches,
+# 0001-xhci-pci-t2-titan-ridge-no-runtime-pm). Cost is about 0.34 W idle.
+# bind matters: xhci_pci allows runtime PM again when it probes.
+# Remove this file to go back to the kernel default.
+ACTION=="add|bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x8086", ATTR{device}=="0x15ec", ATTR{power/control}="on"

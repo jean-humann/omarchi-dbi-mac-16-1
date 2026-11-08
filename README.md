@@ -806,7 +806,8 @@ This pack **vendors** the snapshot for the first install (`apply kernel --build`
 - `makepkg --verifysource` passes: checksums and PGP signatures.
 - `makepkg --nobuild` applies every t2linux patch and the 18 local patches, with no reject. It prints `Prepared … 7.2.15-arch1-Watanare-T2-1-t2-mbp161`.
 - The 23 objects the local patches touch compile with 0 warnings.
-- A full `makepkg` build runs in CI ([Prebuilt packages](#prebuilt-packages)). The boot test on the 16,1 is still to do.
+- The full `makepkg` build passed in CI on 2026-11-08 (2 h 01 min on 4 CPUs). That run is the draft `linux-t2-mbp161-7.2.15.arch1-1-02257ed` ([Prebuilt packages](#prebuilt-packages)). It has 6515 modules and `kernelrelease` `7.2.15-arch1-Watanare-T2-1-t2-mbp161`.
+- The boot test on the 16,1 is still to do.
 
 #### Prebuilt packages
 
@@ -817,9 +818,10 @@ What the toolbox trusts is committed, not downloaded. `kernel/prebuilt.sha256` h
 On this Mac's macOS, before `./bin/mbp16-1 macos`, from the toolbox directory:
 
 ```bash
-# Browser, logged in to GitHub: Releases → draft "linux-t2-mbp161 7.2.15.arch1-1 (…), untested"
-# → both .pkg.tar.zst into kernel/prebuilt/. Or, with gh logged in:
-gh release download <tag> -R jean-humann/omarchi-dbi-mac-16-1 -D kernel/prebuilt -p '*.pkg.tar.zst'
+# Browser, logged in to GitHub: Releases → draft "linux-t2-mbp161 7.2.15.arch1-1 (02257ed), untested"
+# → both .pkg.tar.zst (164 MB + 44 MB) into kernel/prebuilt/. Or, with gh logged in:
+gh release download linux-t2-mbp161-7.2.15.arch1-1-02257ed -R jean-humann/omarchi-dbi-mac-16-1 \
+  -D kernel/prebuilt -p '*.pkg.tar.zst'
 (cd kernel/prebuilt && shasum -a 256 -c ../prebuilt.sha256)   # both lines: OK
 ```
 

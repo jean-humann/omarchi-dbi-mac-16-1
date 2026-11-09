@@ -45,6 +45,10 @@ PACK_NAME="${MBP16_1_PACK_NAME:-omarchi-dbi-mac-16-1}"
 RANDY_REPO="${MBP16_1_RANDY_REPO:-https://github.com/novuon/mbp2019-omarchy.git}"
 TOUCHID_REPO="${MBP16_1_TOUCHID_REPO:-https://github.com/jean-humann/t2-touchid-linux.git}"
 TOUCHID_BRANCH="${MBP16_1_TOUCHID_BRANCH:-mbp161-mixed-envelope}"
+T2FANRD_REPO="${MBP16_1_T2FANRD_REPO:-https://github.com/GnomedDev/T2FanRD.git}"
+# Same revision as Omarchy's t2fanrd r16.48baf96 package. The ramp patch in
+# files/t2fanrd/ is written against it; re-pin both together.
+T2FANRD_REV=48baf962697ec3d4d969c74cf601ee8e15b7aeaa
 
 DRY_RUN=0
 FORCE_MODEL=0
@@ -65,6 +69,9 @@ KERNEL_STOCK=linux-t2
 KERNEL_UPSTREAM_REPO="${MBP16_1_T2_ARCH_REPO:-https://github.com/NoaHimesaka1873/linux-t2-arch.git}"
 KERNEL_UPSTREAM_BRANCH="${MBP16_1_T2_ARCH_BRANCH:-main}"
 KERNEL_YUTERS_REF=e77b03f
+# Local patches vendored in kernel/: yuters first, then extra-*.patch, both in
+# PKGBUILD source=() order (kernel/PATCHES.md says where each one comes from).
+KERNEL_PATCHES_DESC="yuters ${KERNEL_YUTERS_REF} 0001–0005 + extra-*.patch (KaiT2en, klizas)"
 # Limine default order. limine-entry-tool reads /usr/share/limine-entry-tool.d,
 # /etc/limine-entry-tool.conf, /etc/limine-entry-tool.d/*.conf, then
 # /etc/default/limine — the LAST BOOT_ORDER wins. The 4.5 ISO writes

@@ -8,6 +8,7 @@ yuters-issue-e77b03f.md
 logs/
 .cursor/
 dist/
+kernel/prebuilt/
 
 # Build / junk
 mbp16-1-powerd/target/

@@ -6,6 +6,8 @@ use std::path::Path;
 pub struct Envelope {
     pub pl1_idle: i32,
     pub pl1_busy: i32,
+    /// RAPL PL2 (short-term) for this profile. 0 = firmware value.
+    pub pl2: i32,
     pub epp_idle: String,
     pub epp_busy: String,
     pub skin_hard: f64,
@@ -21,6 +23,7 @@ pub struct Config {
     pub busy_core_util: f64,
     pub hot_core_util: f64,
     pub firmware_pl1_w: i32,
+    pub firmware_pl2_w: i32,
     pub psi_busy_pct: f64,
     pub idle_watts: f64,
     pub busy_watts: f64,
@@ -42,6 +45,16 @@ impl Config {
             .unwrap_or_else(|| &self.envelopes["balanced"])
     }
 
+    /// PL2 to hold for a profile: its `pl2_w`, never below its busy PL1,
+    /// else the firmware value.
+    pub fn pl2_for(&self, env: &Envelope) -> i32 {
+        if env.pl2 > 0 {
+            env.pl2.max(env.pl1_busy)
+        } else {
+            self.firmware_pl2_w
+        }
+    }
+
     fn from_ini(ini: &HashMap<String, HashMap<String, String>>) -> Self {
         let g = |k: &str| f64_of(ini, "general", k);
         let mut envelopes = HashMap::new();
@@ -51,6 +64,7 @@ impl Config {
                 Envelope {
                     pl1_idle: i32_of(ini, name, "pl1_idle_w"),
                     pl1_busy: i32_of(ini, name, "pl1_busy_w"),
+                    pl2: i32_of(ini, name, "pl2_w"),
                     epp_idle: str_of(ini, name, "epp_idle"),
                     epp_busy: str_of(ini, name, "epp_busy"),
                     skin_hard: f64_of(ini, name, "skin_hard_c"),
@@ -66,6 +80,7 @@ impl Config {
             busy_core_util: g("busy_core_util"),
             hot_core_util: g("hot_core_util"),
             firmware_pl1_w: i32_of(ini, "general", "firmware_pl1_w"),
+            firmware_pl2_w: i32_of(ini, "general", "firmware_pl2_w"),
             psi_busy_pct: g("psi_busy_pct"),
             idle_watts: g("idle_watts"),
             busy_watts: g("busy_watts"),
@@ -86,6 +101,7 @@ skin_fade_c = 40
 busy_core_util = 0.50
 hot_core_util = 0.80
 firmware_pl1_w = 100
+firmware_pl2_w = 125
 psi_busy_pct = 20
 idle_watts = 18
 busy_watts = 50
@@ -93,13 +109,15 @@ busy_watts = 50
 [power-saver]
 pl1_idle_w = 22
 pl1_busy_w = 32
+pl2_w = 70
 epp_idle = power
 epp_busy = balance_power
 skin_hard_c = 40
 
 [balanced]
 pl1_idle_w = 40
-pl1_busy_w = 58
+pl1_busy_w = 48
+pl2_w = 70
 epp_idle = balance_power
 epp_busy = balance_performance
 skin_hard_c = 43
@@ -107,6 +125,7 @@ skin_hard_c = 43
 [performance]
 pl1_idle_w = 45
 pl1_busy_w = 80
+pl2_w = 0
 epp_idle = balance_performance
 epp_busy = performance
 skin_hard_c = 43

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 const SMC_DIR: &str = "/sys/bus/acpi/devices/APP0001:00";
 const WANT_SMC: &[&str] = &["Ts0S", "Ts1S", "Ts0P", "TC0P"];
 const RAPL_PL1: &str = "/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw";
+const RAPL_PL2: &str = "/sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw";
 const RAPL_ENERGY: &str = "/sys/class/powercap/intel-rapl:0/energy_uj";
 const MAX_PERF: &str = "/sys/devices/system/cpu/intel_pstate/max_perf_pct";
 const CPUFREQ: &str = "/sys/devices/system/cpu/cpufreq";
@@ -48,6 +49,7 @@ pub struct Hardware {
     pub stat: SysfsFile,
     pub psi: SysfsFile,
     pub pl1: SysfsFile,
+    pub pl2: Option<SysfsFile>,
     pub energy: SysfsFile,
     pub max_perf: SysfsFile,
     pub smc: HashMap<String, SysfsFile>,
@@ -61,6 +63,7 @@ impl Hardware {
             stat: SysfsFile::open_ro("/proc/stat")?,
             psi: SysfsFile::open_ro("/proc/pressure/cpu")?,
             pl1: SysfsFile::open_rw(RAPL_PL1)?,
+            pl2: SysfsFile::open_rw(RAPL_PL2).ok(),
             energy: SysfsFile::open_ro(RAPL_ENERGY)?,
             max_perf: SysfsFile::open_rw(MAX_PERF)?,
             smc: discover_smc(),
@@ -75,6 +78,19 @@ impl Hardware {
 
     pub fn write_pl1_w(&mut self, watts: i32) -> bool {
         self.pl1.write_str(&format!("{}", watts as i64 * 1_000_000))
+    }
+
+    pub fn read_pl2_w(&mut self) -> Option<f64> {
+        self.pl2
+            .as_mut()?
+            .read_i64()
+            .map(|u| u as f64 / 1_000_000.0)
+    }
+
+    pub fn write_pl2_w(&mut self, watts: i32) -> bool {
+        self.pl2
+            .as_mut()
+            .is_some_and(|f| f.write_str(&format!("{}", watts as i64 * 1_000_000)))
     }
 
     pub fn write_epp(&mut self, name: &str) -> bool {

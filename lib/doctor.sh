@@ -68,21 +68,45 @@ _doc_titan_ridge_control() {
   return 1
 }
 
+# The eDP link i915 drives now, as "lanes bpp dither". Needs root (debugfs).
+_doc_edp_link() {
+  local info
+  info=$(_doc_root cat "/sys/kernel/debug/dri/${INTEL_PCI}/i915_display_info" || true)
+  [[ -n $info ]] || return 1
+  awk '
+    /dither=/ {
+      d = $0; sub(/.*dither=/, "", d); sub(/,.*/, "", d)
+      b = $0; sub(/.*bpp=/, "", b); sub(/[^0-9].*/, "", b)
+    }
+    /lane_count=/ { l = $0; sub(/.*lane_count=/, "", l); sub(/[^0-9].*/, "", l) }
+    /\[CONNECTOR:[0-9]+:eDP-/ { if (l > 0) { print l, b, d; found = 1 }; exit }
+    END { exit !found }
+  ' <<<"$info"
+}
+
 _doc_boot_gpu() {
-  local prefs boot_vga preboot
+  local prefs preboot link lanes bpp dither
   prefs=$(_doc_efivar_byte "$DOC_GPU_PREFS" || true)
-  boot_vga=$(read_sys "/sys/bus/pci/devices/${INTEL_PCI}/boot_vga")
   preboot=$(_doc_efivar_byte "$DOC_PREBOOT_VAR" || true)
   subsection "Boot GPU (read-only):"
-  if [[ $boot_vga == 1 ]]; then
-    ok "firmware started on Intel  ·  gpu-power-prefs=${prefs:-unset}" \
-      "the iGPU trained the eDP link itself; force_igd had nothing to switch"
-  elif [[ -n $boot_vga ]]; then
-    info "firmware started on AMD  ·  gpu-power-prefs=${prefs:-unset}" \
-      "force_igd moves the lid later: eDP 2 lanes, 18 bpp dithered. README C2 → gpu-power-prefs test"
-    if [[ $prefs == 1 ]]; then
-      hint "gpu-power-prefs is already 1: the firmware reads it at the next boot"
+  # Not boot_vga: force_igd makes Intel the VGA default when it moves the mux,
+  # so boot_vga reads 1 even when the firmware started on AMD. The eDP link
+  # i915 trained tells them apart: 4 lanes when it started on Intel.
+  if link=$(_doc_edp_link); then
+    read -r lanes bpp dither <<<"$link"
+    if ((lanes >= 4)); then
+      ok "eDP ${lanes} lanes  ·  ${bpp} bpp  ·  dither ${dither}  ·  gpu-power-prefs=${prefs:-unset}" \
+        "the firmware started on Intel and i915 trained the link itself"
+    else
+      info "eDP ${lanes} lanes  ·  ${bpp} bpp  ·  dither ${dither}  ·  gpu-power-prefs=${prefs:-unset}" \
+        "the firmware started on AMD and force_igd moved the lid. README C2b → gpu-power-prefs test"
+      if [[ $prefs == 1 ]]; then
+        hint "gpu-power-prefs is already 1: the firmware reads it at the next boot"
+      fi
     fi
+  else
+    info "gpu-power-prefs=${prefs:-unset}  ·  eDP link not read" \
+      "lanes and bpp need root: sudo -v, then rerun doctor"
   fi
   if [[ -n $preboot ]]; then
     info "t2-gpu-preboot mode byte ${preboot}" "1 = restore Intel after macOS. Not installed by this toolbox"
@@ -351,7 +375,9 @@ mbp16_1_doctor() {
   local powerd=0 conf=0 ac=0 turbo=0
   systemctl is-active mbp16-1-powerd.service >/dev/null 2>&1 && powerd=1
   [[ -f /etc/mbp16-1-powerd.conf ]] && conf=1
-  [[ $(tr -d '\n' <"$HOME/.local/state/omarchy/powerprofiles/ac" 2>/dev/null) == balanced ]] && ac=1
+  # 2>/dev/null first: bash applies redirections left to right, so a missing
+  # state file would otherwise print an error before stderr is silenced.
+  [[ $(tr -d '\n' 2>/dev/null <"$HOME/.local/state/omarchy/powerprofiles/ac") == balanced ]] && ac=1
   no_turbo=$(read_sys /sys/devices/system/cpu/intel_pstate/no_turbo)
   [[ $no_turbo == 0 ]] && turbo=1
   if [[ $no_turbo == 1 ]]; then
@@ -373,15 +399,35 @@ mbp16_1_doctor() {
     ((ac)) || info "AC Super is not balanced" "omarchy-powerprofiles-set ac balanced"
     ((turbo)) || true
   fi
+  local pstatus
+  pstatus=$(cat /run/mbp16-1-powerd/status 2>/dev/null || true)
+  if ((powerd)) && [[ -n $pstatus && $pstatus != *'"pl2_target_w"'* ]]; then
+    info "powerd predates per-profile PL2" "mbp16-1 apply power"
+  elif [[ $pstatus == *'"pl2_ok":false'* ]]; then
+    info "powerd cannot hold RAPL PL2" "journalctl -u mbp16-1-powerd"
+  fi
 
   subsection "Fans:"
-  local fans=0 linear=0 temps=0 running=0
+  local fans=0 linear=0 temps=0 running=0 ramp=0
   grep -q '\[Fan1\]' /etc/t2fand.conf 2>/dev/null && grep -q '\[Fan2\]' /etc/t2fand.conf 2>/dev/null && fans=1
   grep -q 'speed_curve=linear' /etc/t2fand.conf 2>/dev/null && linear=1
   grep -q 'low_temp=40' /etc/t2fand.conf 2>/dev/null && grep -q 'high_temp=85' /etc/t2fand.conf 2>/dev/null && temps=1
   systemctl is-active t2fanrd.service >/dev/null 2>&1 && running=1
+  [[ $(systemctl show -p ExecStart --value t2fanrd.service 2>/dev/null) == *t2fanrd-mbp161* ]] &&
+    grep -q '^ramp_up_s=5' /etc/t2fand.conf 2>/dev/null && ramp=1
   if ((fans && linear && temps && running)); then
-    ok "t2fanrd  ·  linear 40–85 °C  ·  Fan1+Fan2"
+    if ((ramp)); then
+      ok "t2fanrd-mbp161  ·  linear 40–85 °C  ·  ramp 5 s  ·  Fan1+Fan2"
+    else
+      ok "t2fanrd  ·  linear 40–85 °C  ·  Fan1+Fan2"
+      info "stock t2fanrd: fans jump on every launch" "mbp16-1 apply fans"
+    fi
+    local fanpkg
+    fanpkg=$(pacman_q_ver t2fanrd)
+    if ((ramp)) && [[ -n $fanpkg && $fanpkg != *"${T2FANRD_REV:0:7}"* ]]; then
+      info "t2fanrd package is ${fanpkg}; patched build pins ${T2FANRD_REV:0:7}" \
+        "Check upstream, then re-pin T2FANRD_REV and files/t2fanrd/ together."
+    fi
   else
     ((running)) || _doc_fail "t2fanrd not running" "mbp16-1 apply fans" "mbp16-1 apply fans"
     ((fans)) || _doc_fail "t2fand.conf missing Fan1/Fan2" "mbp16-1 apply fans" "mbp16-1 apply fans"
@@ -433,26 +479,41 @@ mbp16_1_doctor() {
   fi
 
   section "Touch ID" "T2 SEP. Not Omarchy Fingerprint. Never unload transport."
-  local ncm=0 bl=0 userspace=0
+  local ncm=0 mp=0 userspace=0 ool=
+  local mpconf=/etc/modprobe.d/t2-sep-transport.conf
   if module_loaded cdc_ncm || grep -Rsq 'PRODUCT=5ac/8233' /sys/bus/usb/devices/*/uevent 2>/dev/null; then
     ncm=1
   fi
-  grep -q 'blacklist t2_sep_transport' /etc/modprobe.d/t2-sep-transport.conf 2>/dev/null && bl=1
+  # install.sh writes an observation-only modprobe.d file, not a blacklist. A
+  # PCI-modalias autoload then registers no SEP DMA, and t2-sep-transport-load
+  # swaps that instance for the register_ool=1 one. Forcing register_ool or
+  # probe_capabilities in modprobe.d is what breaks it (-110 at the early load).
+  if [[ -f $mpconf ]] &&
+      ! grep -Eq '^[[:space:]]*options[[:space:]]+t2_sep_transport[[:space:]].*(register_ool|probe_capabilities)=1' "$mpconf"; then
+    mp=1
+  fi
   if [[ -e /opt/t2-touchid ]] || command -v t2-keybag-unlock >/dev/null 2>&1; then
     userspace=1
   fi
-  if ((ncm && bl && userspace)); then
-    if module_loaded t2_sep_transport; then
-      ok "NCM  ·  transport up  ·  userspace"
+  [[ -r /sys/module/t2_sep_transport/parameters/register_ool ]] &&
+    ool=$(</sys/module/t2_sep_transport/parameters/register_ool)
+  if ((ncm && mp && userspace)); then
+    if [[ -e /dev/t2-aks ]]; then
+      ok "NCM  ·  transport up (/dev/t2-aks)  ·  userspace"
+    elif [[ $ool == Y ]]; then
+      info "transport active without /dev/t2-aks" \
+        "do not retry or unload this boot: reboot, then systemctl status t2-sep-transport"
+    elif module_loaded t2_sep_transport; then
+      ok "NCM  ·  transport observation-only (not started)  ·  userspace"
     else
-      ok "NCM  ·  autoload blacklisted  ·  userspace"
+      ok "NCM  ·  transport not started  ·  userspace"
     fi
-  elif ((userspace == 0 && ncm == 0 && bl == 0)); then
+  elif ((userspace == 0 && ncm == 0 && mp == 0)); then
     info "Not installed yet" "mbp16-1 apply touchid"
     ui_next "mbp16-1 apply touchid"
   else
     ((ncm)) || info "T2 NCM not seen" "needed for Touch ID"
-    ((bl)) || info "Transport blacklist missing" "mbp16-1 apply touchid"
+    ((mp)) || info "$mpconf missing or forces register_ool" "mbp16-1 apply touchid"
     ((userspace)) || info "t2-touchid missing" "mbp16-1 apply touchid"
     if module_loaded t2_sep_transport; then
       hint "transport loaded — do not unload, do not start a second one this boot"
@@ -463,6 +524,10 @@ mbp16_1_doctor() {
   fi
   if ! have_pkg fprintd && ! have_cmd fprintd-verify; then
     info "fprintd missing" "mbp16-1 deps touchid"
+    ui_next "mbp16-1 deps touchid"
+  fi
+  if ! have_pkg dkms; then
+    info "dkms missing" "t2_sep_transport is then not where modprobe looks, nor rebuilt after kernel upgrades: mbp16-1 deps touchid"
     ui_next "mbp16-1 deps touchid"
   fi
   if systemctl is-enabled mbp16-1-lock-rearm.service >/dev/null 2>&1; then

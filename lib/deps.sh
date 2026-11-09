@@ -12,11 +12,15 @@ DEPS_TOUCHID_DONE=0
 DEPS_CORE_PKGS=(python git pciutils jq socat)
 
 # Kernel PKGBUILD makedepends that are not always in a fresh Omarchy install.
-# gcc/make/fakeroot/patch come from the base-devel group.
+# gcc/make/fakeroot/patch come from base-devel. Arch made it a meta package
+# (it was a group until 2023), so install it by name: pacman -Sg finds nothing.
 DEPS_KERNEL_PKGS=(bc cpio pahole xxhash libelf openssl perl python tar xz zlib zstd git gettext)
 
 # Touch ID install.sh: python venv + C module against this boot's headers + fprintd.
-DEPS_TOUCHID_PKGS=(python fprintd)
+# dkms is what puts t2_sep_transport where modprobe finds it. Without dkms,
+# install.sh only copies the .ko to /usr/local/lib and the transport unit dies
+# with "Module t2_sep_transport not found". It also rebuilds after kernel upgrades.
+DEPS_TOUCHID_PKGS=(python fprintd dkms)
 
 have_pkg() {
   pacman -Q "$1" >/dev/null 2>&1
@@ -62,14 +66,6 @@ pkg_add() {
   log "installed  ${missing[*]}"
 }
 
-pkg_add_group() {
-  local group=$1
-  local pkgs=()
-  mapfile -t pkgs < <(pacman -Sqg "$group" 2>/dev/null)
-  ((${#pkgs[@]})) || die "package group ${group} not found" "sync pacman databases and retry"
-  pkg_add "${pkgs[@]}"
-}
-
 ensure_cmd() {
   local cmd=$1
   shift
@@ -95,7 +91,7 @@ ensure_kernel_build_tools() {
   is_linux || return 0
   ((DEPS_KERNEL_DONE)) && return 0
   ensure_core
-  pkg_add_group base-devel
+  pkg_add base-devel
   pkg_add "${DEPS_KERNEL_PKGS[@]}"
   ensure_cmd makepkg pacman
   ensure_cmd pahole pahole
@@ -130,7 +126,7 @@ ensure_rust() {
 ensure_touchid_packages() {
   is_linux || return 0
   ensure_core
-  pkg_add_group base-devel
+  pkg_add base-devel
   pkg_add "${DEPS_TOUCHID_PKGS[@]}"
   ensure_cmd python3 python
   ensure_cmd make make

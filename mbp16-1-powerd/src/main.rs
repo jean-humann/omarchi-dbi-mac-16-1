@@ -4,6 +4,8 @@
 //! `powerprofilesctl set` / HoldProfile / `omarchy-powerprofiles-set`.
 //! Super menu is the only UI (envelopes). Inside that envelope we cap RAPL
 //! PL1 from core occupancy, PSI, package watts, and applesmc Ts0S/Ts1S.
+//! RAPL PL2 is fixed per profile (`pl2_w`, 0 = firmware) and re-asserted if
+//! anything else moves it.
 //!
 //! Never writes: AMD DPM, no_turbo, fan*_output, brcmfmac, t2bce.
 
@@ -38,6 +40,8 @@ struct Daemon {
     started_profile: String,
     demand: f64,
     last_pl1: Option<i32>,
+    last_pl2: Option<i32>,
+    pl2_ok: bool,
     last_epp: Option<String>,
     rapl_ok: bool,
     pkg_w: Option<f64>,
@@ -56,7 +60,10 @@ struct Tick {
     demand: f64,
     n_busy: u32,
     emergency: bool,
+    pl1_target: i32,
     pl1_now: Option<i32>,
+    pl2_target: i32,
+    pl2_now: Option<i32>,
     epp: Option<String>,
     skin: Option<f64>,
 }
@@ -76,6 +83,8 @@ impl Daemon {
             started_profile,
             demand: 0.0,
             last_pl1: None,
+            last_pl2: None,
+            pl2_ok: true,
             last_epp: None,
             rapl_ok: true,
             pkg_w: None,
@@ -177,6 +186,7 @@ impl Daemon {
             pl1 = pl1.min(env.pl1_idle);
         }
         let epp = pick_epp(&env.epp_idle, &env.epp_busy, self.demand);
+        let pl2 = self.cfg.pl2_for(&env);
 
         if !self.dry_run {
             if self.last_pl1.is_none_or(|prev| (pl1 - prev).abs() >= 2) {
@@ -198,6 +208,7 @@ impl Daemon {
                     eprintln!("RAPL PL1 not writable");
                 }
             }
+            self.apply_pl2(pl2);
             if self.last_epp.as_deref() != Some(epp) {
                 if self.hw.write_epp(epp) {
                     self.last_epp = Some(epp.to_string());
@@ -228,12 +239,45 @@ impl Daemon {
             demand: self.demand,
             n_busy,
             emergency,
+            pl1_target: pl1,
             pl1_now,
+            pl2_target: pl2,
+            pl2_now: self.hw.read_pl2_w().map(|w| w.round() as i32),
             epp: self.last_epp.clone(),
             skin,
         };
-        self.write_status(&tick, raw, n_hot, psi, tc0p, pl1);
+        self.write_status(&tick, raw, n_hot, psi, tc0p);
         tick
+    }
+
+    /// Hold PL2 at `target`. Cheap read every tick; write only on mismatch
+    /// (profile change, resume, another writer). Logs transitions only.
+    fn apply_pl2(&mut self, target: i32) {
+        let now = self.hw.read_pl2_w();
+        if now.is_some_and(|w| (w - target as f64).abs() < 1.0) {
+            self.last_pl2 = Some(target);
+            self.pl2_ok = true;
+            return;
+        }
+        let ok = self.hw.write_pl2_w(target)
+            && self
+                .hw
+                .read_pl2_w()
+                .is_some_and(|w| (w - target as f64).abs() < 1.0);
+        if ok {
+            if self.last_pl2 == Some(target) {
+                eprintln!("RAPL PL2 re-asserted {target} W (was {now:?} W)");
+            } else {
+                eprintln!("RAPL PL2 {target} W");
+            }
+            self.last_pl2 = Some(target);
+            self.pl2_ok = true;
+        } else {
+            if self.pl2_ok {
+                eprintln!("RAPL PL2 write {target} W failed (now {now:?} W)");
+            }
+            self.pl2_ok = false;
+        }
     }
 
     fn write_status(
@@ -243,7 +287,6 @@ impl Daemon {
         n_hot: u32,
         psi: f64,
         tc0p: Option<f64>,
-        pl1_target: i32,
     ) {
         let blob = serde_json::json!({
             "profile": tick.profile,
@@ -255,8 +298,11 @@ impl Daemon {
             "pkg_w": self.pkg_w.map(|w| round_to(w, 1)),
             "skin_c": tick.skin.map(|s| round_to(s, 1)),
             "tc0p_c": tc0p.map(|s| round_to(s, 1)),
-            "pl1_target_w": pl1_target,
+            "pl1_target_w": tick.pl1_target,
             "pl1_now_w": tick.pl1_now,
+            "pl2_target_w": tick.pl2_target,
+            "pl2_now_w": tick.pl2_now,
+            "pl2_ok": self.pl2_ok,
             "epp": tick.epp,
             "emergency": tick.emergency,
             "rapl_ok": self.rapl_ok,
@@ -282,11 +328,12 @@ impl Daemon {
             return;
         }
         self.hw.write_pl1_w(self.cfg.firmware_pl1_w);
+        self.hw.write_pl2_w(self.cfg.firmware_pl2_w);
         self.hw.max_perf.write_str("100");
         self.ppd.restore(&self.started_profile);
         eprintln!(
-            "restored PL1={} W max_perf_pct=100 PPD {}",
-            self.cfg.firmware_pl1_w, self.started_profile
+            "restored PL1={} W PL2={} W max_perf_pct=100 PPD {}",
+            self.cfg.firmware_pl1_w, self.cfg.firmware_pl2_w, self.started_profile
         );
     }
 
@@ -298,10 +345,11 @@ impl Daemon {
             );
         }
         eprintln!(
-            "start profile={} dry_run={} PL1={:?} EPP={:?} DPM={:?}",
+            "start profile={} dry_run={} PL1={:?} PL2={:?} EPP={:?} DPM={:?}",
             self.started_profile,
             self.dry_run,
             self.hw.read_pl1_w(),
+            self.hw.read_pl2_w(),
             self.hw.read_epp(),
             self.amd_dpm
         );
@@ -311,8 +359,14 @@ impl Daemon {
             if self.last_status_log.elapsed() >= Duration::from_secs(15) {
                 self.last_status_log = Instant::now();
                 eprintln!(
-                    "profile={} demand={:.2} busy={} skin={:?} PL1={:?} EPP={:?}",
-                    tick.profile, tick.demand, tick.n_busy, tick.skin, tick.pl1_now, tick.epp
+                    "profile={} demand={:.2} busy={} skin={:?} PL1={:?} PL2={:?} EPP={:?}",
+                    tick.profile,
+                    tick.demand,
+                    tick.n_busy,
+                    tick.skin,
+                    tick.pl1_now,
+                    tick.pl2_now,
+                    tick.epp
                 );
             }
             let idle = tick.demand < 0.05 && tick.n_busy <= 1 && !tick.emergency;

@@ -175,7 +175,11 @@ apply_power() {
   apply_powerd
   if command -v omarchy-powerprofiles-set >/dev/null 2>&1; then
     if ((ASSUME_YES)) || ask_yn "Set AC Super profile to balanced?" y; then
-      run omarchy-powerprofiles-set ac balanced
+      # polkit allows switch-profile only from the active desktop session, so
+      # this fails over SSH. It is a preference: do not stop setup for it.
+      run omarchy-powerprofiles-set ac balanced ||
+        warn "AC Super profile not set" \
+          "polkit refuses it outside the desktop session. Later, in a desktop terminal: omarchy-powerprofiles-set ac balanced"
     else
       log "left AC Super profile unchanged"
     fi
@@ -198,7 +202,9 @@ apply_powerd() {
   run as_root install -m 0644 "$crate/mbp16-1-powerd.conf" /etc/mbp16-1-powerd.conf
   run as_root install -m 0644 "$crate/mbp16-1-powerd.service" /etc/systemd/system/mbp16-1-powerd.service
   run as_root systemctl daemon-reload
-  run as_root systemctl enable --now mbp16-1-powerd.service
+  run as_root systemctl enable mbp16-1-powerd.service
+  # restart, not enable --now: a running daemon would keep the old binary/conf.
+  run as_root systemctl restart mbp16-1-powerd.service
 }
 
 apply_display() {
@@ -290,10 +296,12 @@ apply_fans() {
   ensure_core
   expect "Fans (t2fanrd)" \
     "Linear 40–85 °C on Fan1 and Fan2 (Intel package). Not Omarchy stock 55–75." \
+    "Patched t2fanrd: no jump on launch, min to max over 5 s. Same curve and max." \
     "Loud 30–60 s at boot until userspace is expected." \
     "Do not 'fix' with DPM auto, no_turbo, or unloading t2bce."
   install_root_file "$FILES/etc/t2fand.conf" /etc/t2fand.conf
   if systemctl list-unit-files t2fanrd.service >/dev/null 2>&1; then
+    apply_t2fanrd_ramp
     run as_root systemctl restart t2fanrd.service
   else
     warn "t2fanrd.service not installed (Omarchy T2 package usually provides it)"
@@ -303,19 +311,61 @@ apply_fans() {
   fi
 }
 
+# Omarchy's t2fanrd back-fills its mean with the first reading after each idle
+# second, 10 times, so fans jump on every launch. Build the same upstream
+# revision plus files/t2fanrd/*.patch and point the packaged unit at it with
+# a drop-in. The pacman package stays intact; deleting the drop-in reverts.
+apply_t2fanrd_ramp() {
+  local dir="$CACHE/t2fanrd"
+  local patch="$FILES/t2fanrd/0001-mbp16-1-smooth-ramp-up.patch"
+  local bin=/usr/local/sbin/t2fanrd-mbp161
+  local dropin=/etc/systemd/system/t2fanrd.service.d/10-mbp16-1-ramp.conf
+  [[ -f $patch ]] || die "missing $patch"
+  ensure_rust
+  if ((DRY_RUN)); then
+    log "dry-run: build t2fanrd ${T2FANRD_REV:0:7} + ramp patch" "$bin"
+    install_root_file "$FILES${dropin}" "$dropin"
+    return 0
+  fi
+  # Pinned: fetch only when the revision is missing (a pull on the detached
+  # checkout would fail anyway).
+  if [[ -d $dir/.git ]]; then
+    git -C "$dir" cat-file -e "${T2FANRD_REV}^{commit}" 2>/dev/null ||
+      git -C "$dir" fetch --quiet origin
+  else
+    clone_or_update "$T2FANRD_REPO" "$dir"
+  fi
+  # --force drops the previous run's patch before applying it again.
+  git -C "$dir" checkout --quiet --force "$T2FANRD_REV" ||
+    die "t2fanrd ${T2FANRD_REV:0:7} not in $T2FANRD_REPO" "Re-pin T2FANRD_REV and the patch together."
+  [[ $(git -C "$dir" rev-parse HEAD) == "$T2FANRD_REV" ]] || die "t2fanrd checkout is not ${T2FANRD_REV}"
+  git -C "$dir" apply "$patch" || die "ramp patch does not apply to t2fanrd ${T2FANRD_REV:0:7}"
+  (cd "$dir" && cargo build --release --locked)
+  run as_root install -D -m 0755 "$dir/target/release/t2fanrd" "$bin"
+  log "installed  $bin"
+  install_root_file "$FILES${dropin}" "$dropin"
+  run as_root systemctl daemon-reload
+}
+
 apply_wifi() {
   require_16_1
   is_linux || die "apply wifi is Linux-only"
   ensure_core
-  if command -v lspci >/dev/null 2>&1 && lspci -nn 2>/dev/null | grep -q '14e4:4488'; then
-    die "PCI shows BCM4377 (14e4:4488)" \
-      "This brcmfmac snippet is for 16,1 BCM4364 (14e4:4464). Do not copy 4377 suspend unloads here."
-  fi
-  if command -v lspci >/dev/null 2>&1 && ! lspci -nn 2>/dev/null | grep -q '14e4:4464'; then
-    warn "did not see BCM4364 14e4:4464 on PCI" "continuing with the 16,1 brcmfmac workaround anyway"
-    if ! ask_yn "Install brcmfmac feature_disable=0x82000 anyway?" n; then
-      log "skipped wifi snippet"
-      return 0
+  local pci
+  if command -v lspci >/dev/null 2>&1; then
+    # Whole listing first. lspci -nn | grep -q dies of SIGPIPE (141) once its
+    # output passes one buffer, and pipefail then hides the BCM4364.
+    pci=$(lspci -nn 2>/dev/null || true)
+    if [[ $pci == *'14e4:4488'* ]]; then
+      die "PCI shows BCM4377 (14e4:4488)" \
+        "This brcmfmac snippet is for 16,1 BCM4364 (14e4:4464). Do not copy 4377 suspend unloads here."
+    fi
+    if [[ $pci != *'14e4:4464'* ]]; then
+      warn "did not see BCM4364 14e4:4464 on PCI" "continuing with the 16,1 brcmfmac workaround anyway"
+      if ! ask_yn "Install brcmfmac feature_disable=0x82000 anyway?" n; then
+        log "skipped wifi snippet"
+        return 0
+      fi
     fi
   fi
   expect "Wi-Fi (BCM4364 / brcmfmac)" \
@@ -377,10 +427,18 @@ apply_kernel() {
   require_16_1
   is_linux || die "apply kernel is Linux-only"
   ensure_core
+  case ${1:-} in
+    ""|--build) ;;
+    --pkg)
+      kernel_pkg_install "${2:-}"
+      return
+      ;;
+    *) die "unknown apply kernel flag ${1}" "use --build, or --pkg [DIR] (default kernel/prebuilt)" ;;
+  esac
   local dest
   dest=$(kernel_build_dest)
   expect "${KERNEL_PKGBASE} packaging" \
-    "Copies PKGBUILD + yuters ${KERNEL_YUTERS_REF} 0001–0005 only. Stock ${KERNEL_STOCK} stays installed." \
+    "Copies PKGBUILD + ${KERNEL_PATCHES_DESC} only. Stock ${KERNEL_STOCK} stays installed." \
     "First install from the vendored tree. After ${KERNEL_STOCK} moves: mbp16-1 update kernel." \
     "Do not run yuters install.sh or current yuters main (panel on AMD, DPM auto, by-path Aqua)."
   if [[ ${1:-} == --build ]]; then
@@ -401,6 +459,7 @@ apply_kernel() {
   else
     section "Next"
     hint "mbp16-1 apply kernel --build     45–90 min, plugged in (vendored tree)"
+    hint "mbp16-1 apply kernel --pkg       CI packages from kernel/prebuilt/, no compile"
     hint "mbp16-1 update kernel            rebase onto current linux-t2-arch, then makepkg"
     hint "or: cd $dest && makepkg -si && sudo limine-update && mbp16-1-limine-quiet"
     hint "after a hand build, re-run: mbp16-1 apply sleep   (boot order: drop-in + /etc/default/limine)"
@@ -427,22 +486,47 @@ apply_touchid() {
   run as_root "$tree/install.sh" || {
     local st=$?
     if [[ $st -eq 2 ]]; then
-      section "Your move"
-      hint "edit /etc/t2-touchid.conf (NCM iface, BridgeOS link-local, macOS uid)"
-      hint "then rerun: mbp16-1 apply touchid"
+      section "Your move" "edit /etc/t2-touchid.conf as root, then rerun: mbp16-1 apply touchid"
+      step 1 "T2_TOUCHID_INTERFACE: ip -br link" "the cdc_ncm link (MAC ac:de:48:00:11:22), not wlan"
+      step 2 "T2_TOUCHID_HOST: sudo nmcli device set IF managed no; sudo ip -6 addr add fe80::aede:48ff:fe00:1122/64 dev IF" \
+        "NetworkManager's DHCP on that link gives up after 45 s and drops the link-local, so unmanage it and put the EUI-64 of the generic MAC back"
+      step 3 "ping -6 -c2 -I IF ff02::1%IF; ip -6 neigh show dev IF" "the fe80:: neighbour that is not your own address is BridgeOS"
+      step 4 "T2_TOUCHID_MACOS_USER_ID: tar -tzf KEYBAGS/t2-touchid-export/t2-touchid-catacomb.tar.gz | grep user_" \
+        "user_000001f5.cat is 0x1f5 = 501; T2_TOUCHID_SPECIAL_BAG is then -501"
       return 0
     fi
     die "t2-touchid install.sh failed ($st)"
   }
+  # install.sh makes /run/t2-touchid as the parent of workers/, so it gets 0755.
+  # t2-touchid-provision-catacomb refuses anything but 0700 (keybag-load sets
+  # 0700 too, but later). /run is tmpfs: this lasts until the next boot.
+  run as_root install -d -o root -g root -m 0700 /run/t2-touchid
   install_lock_rearm
+  # Printed for the user to paste: $USER must stay literal.
+  # shellcheck disable=SC2016
+  local kb='/run/media/$USER/KEYBAGS/t2-touchid-export'
   section "Next (once, this boot)" \
     "Do not unload t2_sep_transport. Do not start a second transport. Keep a root shell on another TTY before PAM."
-  step 1 "sudo t2-touchid-provision-catacomb /private/path/t2-touchid-catacomb.tar.gz" "never gist that archive"
-  step 2 "sudo tools/check-t2-linux-readiness.sh" "from $tree — want RESULT: READY"
-  step 3 "sudo systemctl start t2-sep-transport.service" "one start; never unload. Stop on -110."
-  step 4 "sudo t2-keybag-unlock && sudo systemctl start fprintd.service"
-  step 5 "fprintd-verify -f any \"\$USER\""
-  step 6 "sudo $tree/tools/install-pam.sh && omarchy restart shell"
+  step 1 "sudo systemctl disable fprintd.service t2-sep-transport.service t2-keybag-load.service t2-credential-unlock.service t2-biometric-ready.service" \
+    "install.sh enabled them; the readiness check fails until they are disabled for manual bring-up"
+  step 2 "KB=$kb; tar -xzf \$KB/t2-keybags.tar.gz -O state/path-map.txt | grep Library/Keychains/" \
+    "pick the candidate-NNNN that maps to ~/Library/Keychains/<UUID>/user.kb"
+  step 3 "tar -xzf \$KB/t2-keybags.tar.gz -O state/candidate-NNNN | sudo sh -c 'umask 077; cat >/var/lib/t2-touchid/user.kb'" \
+    "the readiness check wants it 600 root:root. Never gist it."
+  step 4 "sudo install -m 0600 \$KB/t2-touchid-catacomb.tar.gz /root/ && sudo t2-touchid-provision-catacomb /root/t2-touchid-catacomb.tar.gz" \
+    "it refuses an archive that is not 0600, and every file on the stick is world-readable. Then: sudo rm /root/t2-touchid-catacomb.tar.gz"
+  step 5 "sudo systemctl start t2-biometric-port-refresh.service" \
+    "once: brings up the BridgeOS link and caches the BiometricKit port. Do not repeat it."
+  step 6 "sudo $tree/tools/check-t2-linux-readiness.sh" "want RESULT: READY"
+  step 7 "sudo systemctl start t2-sep-transport.service" "one start; never unload. Stop on -110. Then step 6 again: want RESULT: INITIALIZED"
+  step 8 "sudo systemctl start t2-keybag-load.service && sudo t2-keybag-unlock && sudo systemctl start fprintd.service" \
+    "t2-keybag-unlock asks for the macOS login password"
+  step 9 "fprintd-verify -f any \"\$USER\"" \
+    "from a desktop terminal: over SSH the claim fails with 'caller process identity unavailable' (no active local session)"
+  step 10 "sudo systemctl enable t2-sep-transport.service t2-keybag-load.service t2-credential-unlock.service t2-biometric-ready.service fprintd.service" \
+    "back to the state install.sh set, so the next boot brings Touch ID up by itself"
+  step 11 "sudo $tree/tools/install-pam.sh && omarchy restart shell" "then pkexec bash -c 'id -u' twice: fingerprint both times"
+  hint "After each boot, the first sudo asks the Linux password, then the macOS one, to unlock the keybags."
   hint "Operator guide: $tree/docs/PAM_AUTH.md"
   if ! ask_yn "I will follow that sequence and will not unload t2_sep_transport." y; then
     die "stopped" "When you are ready: start at step 1 above. Do not skip the gate."
@@ -477,7 +561,7 @@ apply_desktop() {
   confirm_ready "Reboot unplugged" \
     "No module_blacklist=amdgpu on the next boot." \
     "Log in with USB-C unplugged; plug after the lid is up." \
-    "Still needed: mbp16-1 apply kernel --build (45–90 min), then Touch ID." \
+    "Still needed: mbp16-1 apply kernel --pkg (CI packages) or --build (45–90 min), then Touch ID." \
     "Do not suspend until linux-t2-mbp161 is running."
 }
 
@@ -486,7 +570,7 @@ mbp16_1_setup() {
   require_16_1
   is_linux || die "setup is Linux-only" "On macOS: mbp16-1 macos"
   expect "setup" \
-    "Installs missing runtimes, then the 16,1 desktop files. Builds ${KERNEL_PKGBASE} if it is not installed." \
+    "Installs missing runtimes, then the 16,1 desktop files. Installs ${KERNEL_PKGBASE} if missing: CI packages from kernel/prebuilt/ when they match kernel/prebuilt.sha256, else makepkg." \
     "Asks keyboard + USB-C once. Do not suspend. Do not close the lid until that kernel is running." \
     "If this boot used module_blacklist=amdgpu, this run only writes GPU files — reboot without that token, then setup again."
   section "Checks" "Machine facts first. --yes does not skip these."
@@ -538,7 +622,18 @@ mbp16_1_setup() {
     return 0
   fi
 
-  apply_kernel --build
+  local prebuilt=$KERNEL_DIR/prebuilt
+  if kernel_prebuilt_verify "$prebuilt" --quiet; then
+    apply_kernel --pkg "$prebuilt"
+  else
+    if compgen -G "$prebuilt/*.pkg.tar.zst" >/dev/null; then
+      # Show why the CI packages are refused, then offer the compile.
+      kernel_prebuilt_verify "$prebuilt" || true
+      ask_yn "Compile ${KERNEL_PKGBASE} instead (45–90 min)" y ||
+        die "stopped before the kernel" "fix kernel/prebuilt/ (README D4, Prebuilt packages), then: mbp16-1 apply kernel --pkg"
+    fi
+    apply_kernel --build
+  fi
   section "Next"
   hint "After that reboot: mbp16-1 apply touchid"
 }

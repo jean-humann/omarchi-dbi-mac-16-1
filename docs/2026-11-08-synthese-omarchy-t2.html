@@ -352,13 +352,13 @@ sudo mkinitcpio -P &amp;&amp; sudo limine-update</pre>
     <li class="hot"><div><b>Premier démarrage : phrase LUKS au clavier USB.</b></div></li>
     <li><div><code>./bin/mbp16-1 setup</code> (il inclut la réparation LUKS), puis <code>doctor</code> → <code>Limine default linux-t2-mbp161</code> et <code>t2bce_vhci in boot image</code>. Redémarre au clavier interne pour le confirmer.</div></li>
     <li><div><code>uname -r</code> se termine par <code>-t2-mbp161</code>, puis <code>./bin/mbp16-1 apply touchid</code>.</div></li>
-    <li><div><b>Test ★ <code>gpu-power-prefs</code></b> (README C2b) : un redémarrage, puis <code>boot_vga</code> et <code>lane_count</code>. Si 4 voies : palier 2 dans une PR séparée.</div></li>
+    <li><div><b>Test ★ <code>gpu-power-prefs</code></b> (README C2b) : un redémarrage, puis <code>lane_count</code> et <code>bpp</code> (pas <code>boot_vga</code> : <code>force_igd</code> le met à 1 dans tous les cas). Si 4 voies : palier 2 dans une PR séparée.</div></li>
   </ol>
   <h3 style="margin-top:6px">État au 08/11</h3>
   <div class="offer">
     <div class="box"><b><span class="chip ok"><i>✓</i>PR #1</span> Réparation clavier LUKS</b><span class="muted"><code>apply luks</code>, dans <code>setup</code> et <code>doctor</code>, valable aussi pour linux-t2-mbp161</span></div>
     <div class="box"><b><span class="chip ok"><i>✓</i>PR #1</span> Règle udev Titan Ridge</b><span class="muted"><code>8086:15ec</code>, power/control=on (~0,34 W), dans <code>apply sleep</code></span></div>
-    <div class="box"><b><span class="chip ok"><i>✓</i>PR #1</span> doctor « Boot GPU »</b><span class="muted">lit <code>gpu-power-prefs</code> et <code>boot_vga</code>, sans rien écrire</span></div>
+    <div class="box"><b><span class="chip ok"><i>✓</i>PR #1</span> doctor « Boot GPU »</b><span class="muted">lit <code>gpu-power-prefs</code> et le lien eDP (voies, bpp), sans rien écrire</span></div>
     <div class="box"><b><span class="chip ok"><i>✓</i>PR #1</span> README</b><span class="muted">C2b <code>gpu-power-prefs</code>, PR #77 écartée, avertissement OmApple</span></div>
     <div class="box"><b><span class="chip info"><i>◐</i>préparé</span> Noyau 7.2.15</b><span class="muted">e167207 + yuters + 13 patchs, prepare et compilation partielle OK en Docker</span></div>
     <div class="box"><b><span class="chip info"><i>◐</i>compilé</span> Préboot Limine</b><span class="muted"><code>t2-gpu-preboot</code> qui lance Limine, rien d'installé</span></div>

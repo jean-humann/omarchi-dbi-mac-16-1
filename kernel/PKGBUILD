@@ -1,14 +1,17 @@
-# linux-t2-mbp161 — stock Watanare linux-t2 7.2.3.arch1-1 plus yuters e77b03f
-# Intel-primary patches 0001–0005. Does not replace linux-t2.
+# linux-t2-mbp161 — Watanare linux-t2 packaging 7.2.15.arch1-1 plus yuters e77b03f
+# Intel-primary patches 0001–0005, then extra-*.patch (KaiT2en, klizas). Does not replace linux-t2.
 #
-# Upstream packaging: NoaHimesaka1873/linux-t2-arch @ vendored (v7.2.3.arch1-1)
+# Upstream packaging: NoaHimesaka1873/linux-t2-arch @ b68c1c2 (v7.2.14.arch1-1), bumped by hand to 7.2.15
+# Kernel 7.2.15 is the last 7.2 release (EOL). linux-t2-arch main pins t2linux 777f516 (KVER=7.3).
+# t2linux: e167207 (2026-10-16, KVER=7.2.10), the last linux-t2-patches commit before 7.3.
 # Patches: yuters/mbp161-hybrid-graphics e77b03fe0902216a7544208f2988b4cd391423a1
+#   0001 refreshed for t2linux e167207 (force_idg typo fixed upstream). See PATCHES.md.
 # Do not use yuters main (Falcon / panel-on-AMD).
 
 pkgbase=linux-t2-mbp161
-pkgver=7.2.3.arch1
+pkgver=7.2.15.arch1
 pkgrel=1
-pkgdesc='Linux for T2 Macs + MacBookPro16,1 Intel-primary s2idle/USB-C (yuters e77b03f)'
+pkgdesc='Linux for T2 Macs + MacBookPro16,1 Intel-primary s2idle/USB-C (yuters e77b03f + KaiT2en/klizas)'
 url='https://github.com/archlinux/linux'
 arch=(
   x86_64
@@ -39,7 +42,7 @@ options=(
 )
 _srcname=linux-${pkgver%.*}
 _srctag=v${pkgver%.*}-${pkgver##*.}
-T2_PATCH_HASH=1ed4126844013f7e6fb3c8b0347cf0c5d6f99ffa
+T2_PATCH_HASH=e16720782ee30fac38486b6c58d32443899c136a
 source=(
   https://cdn.kernel.org/pub/linux/kernel/v${pkgver%%.*}.x/${_srcname}.tar.{xz,sign}
   $url/releases/download/$_srctag/linux-$_srctag.patch.zst{,.sig}
@@ -53,6 +56,21 @@ source=(
   yuters-0003-amdgpu-dm-skip-ghost-edp.patch
   yuters-0004-pci-pm-s2idle-bypass-mbp161.patch
   yuters-0005-titan-ridge-type3-power-sequence.patch
+
+  # KaiT2en 8de9546 + klizas 5181c93 — applied AFTER yuters, in this order (see PATCHES.md)
+  extra-01-kait2en-w0001-brcmfmac-no-txbf.patch
+  extra-02-kait2en-w0002-btbcm-acl-priority.patch
+  extra-03-kait2en-w0003-brcmfmac-ps-200ms.patch
+  extra-04-kait2en-w0014-brcmfmac-arp-nd-offload-off.patch
+  extra-05-kait2en-i0001-psr-apple-panels.patch
+  extra-06-kait2en-i0002-psr-tcon-handshake.patch
+  extra-07-kait2en-i0003-gmux-brightness-restore.patch
+  extra-08-klizas-touchbar-suspend-resume.patch
+  extra-09-klizas-appletbdrm-zlp-pad.patch
+  extra-10-klizas-appletbdrm-kzalloc-request.patch
+  extra-11-klizas-appletbdrm-reset-free-old-state.patch
+  extra-12-klizas-brcmfmac-suspend-fix.patch
+  extra-13-klizas-brcmfmac-resume-liveness-probe.patch
 )
 source_x86_64=(config.x86_64)
 validpgpkeys=(
@@ -60,28 +78,54 @@ validpgpkeys=(
   647F28654894E3BD457199BE38DBBDC86092693E  # Greg Kroah-Hartman
   83BC8889351B5DEBBB68416EB8AC08600F108CDF  # Jan Alexander Steffens (heftig)
 )
-sha256sums=('8ba259e8e7b13ec6ef0941c8a39ad90b24bd4a4d6c0010ba6bafb794550ecd03'
+sha256sums=('d0f6b1d7324c937ccaeb5c4ca7084bfcf71db2edb3e2d3a31f0ad83a681809ab'
             'SKIP'
-            '8c917e7ba5cbd93491f18d11d6adbdcb1ea64fd6f8b47a0fce5d04a0ac9aa4f6'
+            '58c4f43e0c1583a37774867efe8a8d7b1201d094feb304111da161791193a790'
             'SKIP'
-            'ccd8100efba229ff3cbe160e4aabd76d7c649086616d22898fcc58ca9c22dd96'
-            '1b4b0553611305c99620571b42a8799d3f62bcfc7232bcbdcd1304c6c3cceda2'
+            'd9fa9aa5045079877d6bb226ee718c09bea424f6a91a48358430e406efe1d1ac'
+            '4b2e57bfa0251059769ea1a4fbdee2287eefb46be855eb2eb9c91e66193078aa'
             '0013d9db157f066c8d6f87566ee0e767bf525fdd6101cac9aa78945804d524c1'
             '941bcefd59069c29a27e07118f600b63b80d65cf4cb41e66d415a29b5f54e7ed'
             'ee5181ef36d464c67bcc22f96f68e63995ca3222c57a9ff6358997279e4398ab'
-            '4c97cf2495d7a53c827836ef7ce3d6786274c3d79da23393a1cb05961e9562dd')
-sha256sums_x86_64=('09bf2e22e995baf6a2c38079cfb5ad896d4e10aa47af60864c2dd36d5cb9e25c')
-b2sums=('a1d10f1b4422f55c9c87fec0d319fd3dfaf8992f40f9c3d6da1d74e6e78ef220c24cdcd5b689070fb4a287070d1cb3659dc9ea79e5500027854f32c1326c67f7'
+            '4c97cf2495d7a53c827836ef7ce3d6786274c3d79da23393a1cb05961e9562dd'
+            '4b8211d92b66968b20064377f493427f98f8d11a895583890606ebba3935594b'
+            '1f7eaef045bda268eb4c480bcd76a8a85ba7f10c1e1064d20d8f1acc372d1c4b'
+            '14cfacefdcd8aca424947a5a84e528d3f367fad9c5539de0e8f13748ec31a344'
+            '6756c9ae1ea13a668feb2cd25fffc8cf9e0d808c820f431320305388390ca69c'
+            '8107f8168bcd9db19806ae429f33e75e7ff4d9e20eea5d83613e849030fb58a0'
+            'ff02ee128359b0969809db64bd6ae20670604e558c57004e97c3e00d17db77c7'
+            '0bc380b2fdba53494e89d0d5f6fae67aad5db91f031ede9fcb46d3ca0657e0fd'
+            '237b0a66f0f34af2b998d10ce43f27325d2c71440678b16b8807909b5447c5fd'
+            '093146dea9c68fd4eecba569f126bf8da2cde2d021cf7a9c8dcd8eadedede0fd'
+            'e6ea68ad7db0a82627b991c127da8ed7eb7b78b887eed9cfd9eaa89e5ffbbd31'
+            'b8bcb605ad9bca27d07a4e997478773aef8b53f796e0e04194fc7c37f9ea8e2f'
+            '393e0acdbb9c3f8a392f49b36f22100f29e92d58ee092261c14eeb7a122b1c56'
+            '40cdac9e5b4c692c04bd1ee6e6d747c99d50268356dbcb37567bd649dcfeb5c8')
+sha256sums_x86_64=('e8f340e4d83dd3cac6ac516a6d43919d325ec15895c8e63bb27e1db156eb0731')
+b2sums=('a1d1a6572667dfd75f7dde083a8d461db98e08bbc67cdd395e2d73a422ee487bd14392ce69b9511c386b63d9c3c02255978a33149278d6e3bace35937ceda495'
         'SKIP'
-        'ee03773babee5126fb061bd7c9fb3b402c6bc96d49bce0a91a8b7a37f544b89ed38b2f4f71543dea355c965a80dfc264e9c6625da7ee5e3e7ada91441f4cf52c'
+        '67c3a12310872c288ee5c6681fcd3f956103da1a7cf67f97a0bc2a1c2bfea6c4d7f916250eee79088d3e5c74e2e85a6145b3a605ed7527990c95e69454a9a455'
         'SKIP'
-        'e2184179a17b4c4ddaae1385b255491c5a2655fe5cda6e0d9e03dae45e15d271cd9ba67453a17a611f234560ddc2c4ba6db3f5e2b380711561b34848c8c202d5'
-        'SKIP'
-        'SKIP'
-        'SKIP'
-        'SKIP'
-        'SKIP')
-b2sums_x86_64=('da56ce9b2f28b75436c52afbc16913027796d98b467575920d82e15fb626689438e69cc07fedde77a96f2cb2ce10b510a873c43f43105ccec9a44e656b0624e1')
+        'd6e2e1fb810c2fdec46479e06a7db905106bb8b2ca72de815b377c6755ef07af6a85bfe8d5caf77cfd79153ed741debf379f63464a18b88f0234f7b551f7f784'
+        '1f3647c01c6f33746cd84a89f8b8797ae1c1b3424fbe3301fe5cba49391c5efddc592b10b6000cd0f2b59ad1feafa1816ef105114a83345f02abf2c6ceea5cd2'
+        '309d2ec0ce8099c9520074b8528f85c1d455ff26a25aa81cc20321db4827294110eb8552c0c7b83fa7325452d90e95da5262aa8372a940aa763d2251265e9d0e'
+        'e7c12370d1f903428affd944c1fafd555b9688cc62719c8197aa3b74f7f622df797b63bbd58dc9837f382aef8df6b136ebfcb60934c3d275c19a986501762385'
+        '7d627a69b75981346f89323ae1d52591f9c25dbca1be5c6a7462bdf6768c507cd7dc4072b2c405eb88aa37148a1b5e90b63cfc7a067425dc53e74f098c43feb6'
+        '274b2ee9a27a20eda563d7b44d2aa8ccaf3609a253c998a9f63b05f653852d66a5430378dfb6c2a8bae6b7f40b8ac1b083df6cb9821279ed3bb3dabf1eb44355'
+        'df5aa47bf95364a41b68f062c51df3c5eaa436623a3bc5994cdd53703976eea0df0942e29f131f3f29b15c967b456aa6a10233030b1346ce6a0cbb37fd888e69'
+        '6496160b232a157606b161591a13386ccb24931e09bbe472077f57190b9a2d0614ba4f2f5778aae5e2d76e8fa0ba8d1836e02b868b33461891f1c72b781b7f4e'
+        'b8181cb73e0034c14272ccb1afd29b48e66015f341349584b62ea1d3581821352e19db500f203a870aae5abd97600b5e775241af4f9b6453f9642c73884a4edf'
+        '02c1674f904db4c86cb94979faee42e3aa1989d02552147dd199240def3f103f5bab0a422d4e7447e490d136e2c3d8fbca4562668e2a95819caf1fc7c86feb3f'
+        '0942508f648f6c1c35903028cbeacad6240280605de3a0d093032cf2e512dc10e7a86767913786c36f7dd9e8f6307736fbb8c4f5b653ff222fc5529df2e8d864'
+        'd68aeaaabcdef58979e46c1e8ddfbf268b48a62e7dae7d7837be26811085a0b01c69679f09013d9a1ee89e44b39487e33acbd43e5bfe8daccb84f9b0b6336893'
+        '4fd4ae89a7f298afa5920fdd0168531532ee9cf3d1c41a74f5f510545f4ed00a6bbcab63be39346030c09fcaf22fafba674dca3e2c541f253508183068515c9c'
+        'f974c7545de0a6db97e5992baf749680a16d6acc7c78aa942a883635323f6e2ea65d9af48fc35303d6a2b177185d3d60391b0e55f2c2742f41fc2500f1e70558'
+        '558475ea78670be9a5281d6f02d49e261b44fd103838b5ee74cac6c9e4d0ec85e48c25e80110f8d928c56c8b6fdc357aea75c62b9376ecc21dc8f283c742420b'
+        'b6c5b1f0a912fab141b0bcd6ddf3ccdc977e461df7dc6439a98e6f05db600590dc76f26861c7b6fe895cde6e85915d551edb8bfbd3e46b34b95c0fc7b56b2b4b'
+        '493b8a4d3e713f137895b046b8b2c30c7742b1c3686db73214958c8a1f961a67dfe7de063c13c6069afbb3e2624c7b27ceb38224233903a63e6d7da6e73ae1cb'
+        '5605a4a11c8bc8884a825cc8e35b16bfde94c59537501d018096f38fdc1b9fe8b1716201a9378ec05bf3955c367637c3e673380a23ab604d7b028ff5a6905169'
+        '7ef10acf0f7b9a6848a912383a429ec065251791bc8e8b3bea590a64fc662cb979b69685d9588ac074532bb043540a993731a7826eb8234e8df0a5e92492cc09')
+b2sums_x86_64=('7b0b12692a377195543ca9beadd416f819aa50b98b6b1e24e54177fa52a43a732ee38a0bd81a6f3605ca78dabc894d99d8653883cafa79e18475617cf10735cc')
 
 export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
 export MAKEFLAGS="${MAKEFLAGS:--j6}"
@@ -102,16 +146,21 @@ prepare() {
     src="${src##*/}"
     src="${src%.zst}"
     [[ $src = *.patch ]] || continue
-    [[ $src = yuters-* ]] && continue
+    [[ $src = yuters-* || $src = extra-* ]] && continue
     echo "Applying patch $src..."
     patch -Np1 < "../$src"
   done
 
-  echo "Applying yuters e77b03f patches (after t2linux)..."
-  local yp
-  for yp in "$srcdir"/yuters-000*.patch; do
-    echo "Applying ${yp##*/}..."
-    patch -Np1 < "$yp"
+  # Local patches in source=() order, never a glob: a stale file left in the
+  # build dir must not be applied.
+  local group
+  for group in yuters extra; do
+    echo "Applying $group patches (after t2linux)..."
+    for src in "${source[@]}"; do
+      [[ $src = "$group"-*.patch ]] || continue
+      echo "Applying $src..."
+      patch -Np1 < "$srcdir/$src"
+    done
   done
 
   echo "Setting config..."

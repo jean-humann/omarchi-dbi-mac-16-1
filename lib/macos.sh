@@ -228,6 +228,21 @@ _macos_diskutil_val() {
   '
 }
 
+# Prints Internal or External, or nothing if diskutil says neither.
+# macOS 14 prints "Device Location: Internal|External" and no "Internal:" line.
+# Older releases printed "Internal: Yes|No"; keep that as the fallback.
+_macos_disk_location() {
+  local v
+  v=$(_macos_diskutil_val "$1" "Device Location")
+  case $v in
+    Internal|External) printf '%s\n' "$v"; return 0 ;;
+  esac
+  case $(_macos_diskutil_val "$1" Internal) in
+    Yes) printf 'Internal\n' ;;
+    No) printf 'External\n' ;;
+  esac
+}
+
 _macos_disk_bytes() {
   local line
   line=$(_macos_diskutil_val "$1" "Disk Size")
@@ -253,7 +268,7 @@ _macos_sha256() {
 }
 
 _macos_collect_usb() {
-  local id proto internal
+  local id proto location
   MACOS_USB_DISKS=()
   while IFS= read -r id; do
     [[ $id == disk[0-9]* ]] || continue
@@ -262,9 +277,9 @@ _macos_collect_usb() {
       *) continue ;;
     esac
     [[ $id != disk0 ]] || continue
-    internal=$(_macos_diskutil_val "$id" Internal)
+    location=$(_macos_disk_location "$id")
     proto=$(_macos_diskutil_val "$id" Protocol)
-    [[ $internal == No ]] || continue
+    [[ $location == External ]] || continue
     [[ $proto == USB ]] || continue
     MACOS_USB_DISKS+=("$id")
   done < <(diskutil list external physical 2>/dev/null | awk '
@@ -395,12 +410,12 @@ _macos_existing_free_bytes() {
 }
 
 _macos_find_apfs_stores() {
-  local id proto internal
+  local id proto location
   while IFS= read -r id; do
     [[ -n $id ]] || continue
-    internal=$(_macos_diskutil_val "$id" Internal)
+    location=$(_macos_disk_location "$id")
     proto=$(_macos_diskutil_val "$id" Protocol)
-    [[ $internal == Yes ]] || continue
+    [[ $location == Internal ]] || continue
     [[ $proto != USB ]] || continue
     printf '%s\n' "$id"
   done < <(diskutil list internal physical 2>/dev/null | awk '
@@ -458,11 +473,11 @@ _macos_assert_installer_size() {
 
 _macos_assert_usb() {
   local disk=$1
-  local internal proto
+  local location proto
   [[ $disk != disk0 ]] || die "refusing disk0" "that is the internal SSD"
-  internal=$(_macos_diskutil_val "$disk" Internal)
+  location=$(_macos_disk_location "$disk")
   proto=$(_macos_diskutil_val "$disk" Protocol)
-  [[ $internal == No ]] || die "$disk is internal" "refusing to write the ISO or keybags there"
+  [[ $location == External ]] || die "$disk is not external (${location:-location unknown})" "refusing to write the ISO or keybags there"
   [[ $proto == USB ]] || die "$disk protocol is ${proto:-unknown}" "want a USB whole disk"
 }
 
@@ -757,13 +772,15 @@ macos_copy_pack() {
   _macos_refuse_installer_out "$dest"
   expect "Copy toolbox onto the private stick" \
     "Shareable pack: README, bin, lib, files, kernel, macos, scripts, mbp16-1-powerd source." \
+    "Plus kernel/prebuilt/ if you downloaded the CI kernel packages (README D4)." \
     "Not keybags. Not the private diary. The ISO flash does not touch this stick."
   _pack_helpers_identical
+  _macos_prebuilt_report
   if ((DRY_RUN)); then
-    log "dry-run: pack --force $dest"
+    log "dry-run: pack --force $dest  (with kernel/prebuilt/)"
     return 0
   fi
-  _pack_write "$dest" 1 1
+  _pack_write "$dest" 1 1 1
   if [[ -d $ROOT/.git && ! -f $ROOT/CONTINUE.md ]]; then
     rm -rf "$dest/.git"
     if command -v rsync >/dev/null 2>&1; then
@@ -793,6 +810,38 @@ Subcommands (one piece): mbp16-1 doctor, apply gpu / display / … — see READM
 EOF
   ok "toolbox" "$dest"
   hint "after first Linux boot: cd to ${PACK_NAME} on this stick, then ./bin/mbp16-1 setup"
+}
+
+# Check kernel/prebuilt/ against kernel/prebuilt.sha256 + .inputs before it
+# goes onto the stick, so a bad or stale download shows up here and not after
+# the reboot. bash 3.2 safe (no mapfile). setup checks again before pacman -U.
+_macos_prebuilt_report() {
+  local dir=$KERNEL_DIR/prebuilt sums=$KERNEL_DIR/prebuilt.sha256 want name got bad=0 n=0
+  if ! compgen -G "$dir/*.pkg.tar.zst" >/dev/null; then
+    info "kernel/prebuilt/ empty" "setup will compile ${KERNEL_PKGBASE} (45–90 min) — README D4, Prebuilt packages"
+    return 0
+  fi
+  if [[ ! -f $sums || ! -f $KERNEL_DIR/prebuilt.inputs ]]; then
+    warn "kernel/prebuilt.sha256 or .inputs missing" "setup will refuse these packages and offer to compile"
+    return 0
+  fi
+  if [[ $(kernel_inputs_digest) != "$(awk 'NF { print $1; exit }' "$KERNEL_DIR/prebuilt.inputs")" ]]; then
+    warn "kernel/ changed since the CI build" "these packages are another tree; setup would offer to compile"
+    return 0
+  fi
+  while read -r want name; do
+    [[ -n $want ]] || continue
+    name=${name#\*}
+    n=$((n + 1))
+    got=$(shasum -a 256 "$dir/$name" 2>/dev/null | awk '{ print $1 }')
+    [[ $got == "$want" ]] || bad=1
+  done <"$sums"
+  if ((bad == 0 && n == 2)); then
+    ok "kernel/prebuilt/" "both packages match kernel/prebuilt.sha256 — setup installs them, no compile"
+  else
+    warn "kernel/prebuilt/ does not match kernel/prebuilt.sha256" \
+      "download both .pkg.tar.zst again from the draft release; setup would offer to compile"
+  fi
 }
 
 _macos_ensure_private_mount() {
@@ -892,7 +941,17 @@ macos_export() {
   fi
   (cd "$tools" && ./macos-export-touchid-catacomb.sh --no-reboot)
   mkdir -p "$out"
-  cp -a "$tools"/t2-keybags.tar.gz "$tools"/t2-touchid-catacomb.tar.gz "$out/"
+  # The helpers leave both tars owned by root, mode 600, so a plain cp fails
+  # with "Permission denied". Read each one as root and write the copy as this
+  # user, then compare the two byte for byte.
+  local tar
+  for tar in t2-keybags.tar.gz t2-touchid-catacomb.tar.gz; do
+    (umask 077 && as_root cat "$tools/$tar" >"$out/$tar.tmp") || \
+      die "could not copy $tar to $out" "is the private stick full or read-only?"
+    as_root cmp -s "$tools/$tar" "$out/$tar.tmp" || \
+      die "$tar on $out does not match the export" "re-run: mbp16-1 macos export"
+    mv -f "$out/$tar.tmp" "$out/$tar"
+  done
   chmod 600 "$out"/t2-keybags.tar.gz "$out"/t2-touchid-catacomb.tar.gz 2>/dev/null || true
   macos_copy_pack
   section "Done"
@@ -940,7 +999,7 @@ macos_map_apfs() {
     MACOS_CONTAINER=$(_macos_norm_store "$(ask_line "APFS container to shrink (internal store, usually disk0s2)" "$default")")
   fi
 
-  _macos_diskutil_val "$MACOS_CONTAINER" Internal | grep -qx Yes || \
+  [[ $(_macos_disk_location "$MACOS_CONTAINER") == Internal ]] || \
     die "$MACOS_CONTAINER is not internal" "refusing to shrink a USB or external disk"
   _macos_diskutil_val "$MACOS_CONTAINER" Protocol | grep -qi USB && \
     die "$MACOS_CONTAINER is USB" "that would be a stick, not the Mac SSD"

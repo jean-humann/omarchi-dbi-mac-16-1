@@ -29,6 +29,8 @@ cd omarchi-dbi-mac-16-1
 ./bin/mbp16-1 macos
 ```
 
+Optional, saves the 45–90 min compile on Linux: before `./bin/mbp16-1 macos`, download the two CI kernel packages into `kernel/prebuilt/` ([D4, Prebuilt packages](#prebuilt-packages)). `macos` checks them and copies them onto KEYBAGS with the toolbox.
+
 `macos` **stops** if the model is not `MacBookPro16,1`, if Secure Boot is still Full/Medium, if external boot is disallowed, if fewer than two USB disks are plugged, or if no Touch ID prints are enrolled. It **asks you to type y** for backup, keyboard + lid, Recovery (only if it could not read both T2 knobs), Touch ID (only if `bioutil` did not report prints), and continuing on battery. Then it maps disks, shrinks APFS if needed, offers to delete an earlier Linux install (`macos reclaim`, reinstall only), writes keybags **and this toolbox** onto KEYBAGS, downloads pinned 4.5.0, and `dd`s the installer (you type that disk id again before erase).
 
 Shut down **~30 s**. Power on, hold **Option**, pick **orange EFI Boot**. Installer: pick the internal SSD, then **Free space install (alongside existing data)** (keep macOS). **Not** “Full disk install” — it is listed **first** and wipes macOS. The installer creates its own 2 GiB `OMARCHY_EFI` in the hole; it never touches Apple’s ~300 MB EFI.
@@ -45,7 +47,7 @@ chmod +x bin/mbp16-1
 ./bin/mbp16-1 apply touchid
 ```
 
-`setup` checks DMI, AMD DPM / amdgpu blacklist, and AC; then asks a yes for USB keyboard, no-suspend until `linux-t2-mbp161`, and not using Omarchy Hybrid GPU / Fingerprint. It also asks keyboard layout and USB-C once. `apply touchid` **refuses** until that kernel is running with DPM **low** and T2 NCM is present; then it asks that KEYBAGS with *this* Mac’s export is plugged.
+`setup` checks DMI, AMD DPM / amdgpu blacklist, and AC; then asks a yes for USB keyboard, no-suspend until `linux-t2-mbp161`, and not using Omarchy Hybrid GPU / Fingerprint. It also asks keyboard layout and USB-C once. Then it installs `linux-t2-mbp161`: the CI packages from `kernel/prebuilt/` if they match `kernel/prebuilt.sha256` and `kernel/prebuilt.inputs`, otherwise `makepkg` (45–90 min, plugged in). `apply touchid` **refuses** until that kernel is running with DPM **low** and T2 NCM is present; then it asks that KEYBAGS with *this* Mac’s export is plugged.
 
 If the **lid is black**: USB keyboard, tap a key as soon as Limine starts (4.5 hides the menu and boots after 1 s), **e**, `module_blacklist=amdgpu`, **F10**, login, `setup`, reboot **without** that token, `setup` again.
 
@@ -92,7 +94,7 @@ Stock Omarchy 4.5 on this 16,1 already has T2 audio, Broadcom firmware, `t2fanrd
 | Touch Bar | Config 1 | Omarchy ISO (in-tree). This recipe **stays** USB config 1 |
 | Brightness keys | Yes | this toolbox — `gmux_backlight` (not Touch Bar backlight) |
 | Wi-Fi (BCM4364) | Yes | Omarchy ISO firmware + `brcmfmac` WPA workaround (Omarchy 4.5 writes it too). IPv6 can be slow: [A/B test](docs/ab-tests-audio-wifi.md#3-wi-fi-ipv6-throughput) |
-| Fans | Yes | Omarchy ISO `t2fanrd` + this toolbox linear **40–85 °C** |
+| Fans | Yes | Omarchy ISO `t2fanrd` + this toolbox linear **40–85 °C**, patched ramp (no jump on launch) |
 | Power / heat | Yes | this toolbox — AMD DPM **`low`** + `mbp16-1-powerd` |
 | Audio | Yes | Omarchy ISO (T2 audio). Raw mic is quiet: optional [mic DSP](docs/ab-tests-audio-wifi.md#1-microphone-dsp) |
 | Bluetooth | Yes | Omarchy ISO (Broadcom firmware) |
@@ -111,7 +113,7 @@ Later, after `omarchy update` (recovery `linux-t2` may move): `mbp16-1-limine-qu
 
 Same install, unpacked. Use these sections and **subcommands** (`macos shrink`, `macos flash`, `apply gpu`, `doctor`) when you need one piece or a rerun. Skip this if the easy path is enough.
 
-**Daily kernel:** `linux-t2-mbp161` (Watanare `linux-t2` + yuters `e77b03f` `0001`–`0005`). Identity is **pkgbase**, not a version string — it will move when you rebase.  
+**Daily kernel:** `linux-t2-mbp161` (Linux 7.2.15 + t2linux `e167207` + yuters `e77b03f` `0001`–`0005` + `extra-01`–`13` from KaiT2en and klizas, see [`kernel/PATCHES.md`](kernel/PATCHES.md)). Identity is **pkgbase**, not a version string — it will move when you rebase.  
 **Recovery:** stock `linux-t2`. Do not suspend on stock.
 
 | | Typical on this model |
@@ -458,12 +460,13 @@ systemctl reboot
 The first 4 bytes are the attributes (NV + boot + runtime); the last 4 are the value. After the reboot:
 
 ```bash
-cat /sys/bus/pci/devices/0000:00:02.0/boot_vga     # 1 = the firmware started on Intel
-sudo sh -c 'grep -hE "lane_count|bpp=" /sys/kernel/debug/dri/*/i915_display_info' | sort -u
+sudo grep -hE "lane_count|bpp=" /sys/kernel/debug/dri/0000:00:02.0/i915_display_info
 # before:  dither=yes, bpp=18   lane_count=2
 # goal:    dither=no,  bpp≥24   lane_count=4
-./bin/mbp16-1 doctor                               # GPU → Boot GPU line
+sudo -v && ./bin/mbp16-1 doctor                   # GPU → Boot GPU line (sudo -n reads the link)
 ```
+
+Do not read `boot_vga` for this test: `force_igd` makes Intel the VGA default when it moves the mux, so `boot_vga` is 1 even when the firmware started on AMD.
 
 - **macOS rewrites the variable on each of its boots**, so after you boot macOS the test is undone and you rerun it. Persisting it is KaiT2en's `t2-gpu-preboot` UEFI app (it chainloads Fedora's shim; a Limine build is not part of this toolbox yet).
 - Black lid or no improvement: boot macOS once (that resets it), or write `\x00` in place of `\x01` as the fifth byte.
@@ -579,13 +582,13 @@ Do not bounce `low`/`high` from `gpu_busy_percent`. Do not install `mbp161-amdgp
 omarchy-powerprofiles-set ac balanced
 ```
 
-| Super | Idle desk | Many busy cores | Skin hard stop |
-| --- | --- | --- | --- |
-| power-saver | 22 W, `power` | 32 W, `balance_power` | 40 °C |
-| **balanced** (AC here) | **40 W**, `balance_power` | 58 W, `balance_performance` | 43 °C |
-| performance | 45 W, `balance_performance` | 80 W, `performance` | 43 °C |
+| Super | Idle desk | Many busy cores | PL2 | Skin hard stop |
+| --- | --- | --- | --- | --- |
+| power-saver | 22 W, `power` | 32 W, `balance_power` | 70 W | 40 °C |
+| **balanced** (AC here) | **40 W**, `balance_power` | 48 W, `balance_performance` | 70 W | 43 °C |
+| performance | 45 W, `balance_performance` | 80 W, `performance` | firmware 125 W | 43 °C |
 
-Never writes DPM, `no_turbo`, fans, `brcmfmac`, `t2bce`. Status: `cat /run/mbp16-1-powerd/status`. Stop restores firmware PL1 **100 W**.
+Balanced 48 W + PL2 70 W keeps the die near 84 °C under sustained all-core load instead of pinning TjMax, at about −2 % throughput. Use `performance` for long full builds. Never writes DPM, `no_turbo`, fans, `brcmfmac`, `t2bce`. Status: `cat /run/mbp16-1-powerd/status`. Stop restores firmware PL1 **100 W** and PL2 **125 W**.
 
 ### C6. apply input — keyboard, trackpad, SDDM
 
@@ -682,7 +685,7 @@ Optional still-config-1 media-strip: [Randy 09](https://github.com/novuon/mbp201
 
 ## 5. Phase D — s2idle, Wi-Fi, fans, sleep kernel
 
-The [Easy path](#easy-path) `setup` already writes D1–D3 and runs `apply kernel --build`. Use the `apply sleep` / `apply kernel` **subcommands** below for a rerun.
+The [Easy path](#easy-path) `setup` already writes D1–D3 and installs the sleep kernel (`apply kernel --pkg` when [`kernel/prebuilt/`](#prebuilt-packages) checks out, otherwise `apply kernel --build`). Use the `apply sleep` / `apply kernel` **subcommands** below for a rerun.
 
 Stock Omarchy wants `deep` (the 4.5 `fix-t2.sh` writes `mem_sleep_default=deep` into `t2-mac.conf`; `apply sleep` overwrites it). This 16,1 wants **s2idle**. Stock `linux-t2` **cannot** resume the 5500M SMU while `amdgpu` is bound (**SMU `-62`**). Sleep is a **second** kernel beside stock.
 
@@ -760,7 +763,14 @@ The Omarchy 4.5 installer writes the same file (`fix-brcmfmac-supplicant.sh`); `
 
 ### D3. apply fans
 
-`t2fanrd` Fan1 **and** Fan2, Intel package. Loud 30–60 s at boot until userspace. **Linear 40–85 °C** (not Omarchy stock 55–75). Do not exponential. Do not “fix” with DPM `auto` / `no_turbo` / unloading `t2bce`. Hunt: raise `low_temp` toward 46 then 48; never shrink `high_temp` to 75.
+`t2fanrd` Fan1 **and** Fan2, Intel package. Loud 30–60 s at boot until userspace. **Linear 40–85 °C** (not Omarchy stock 55–75). Do not exponential. Do not “fix” with DPM `auto` / `no_turbo` / unloading `t2bce`. Hunt: raise `low_temp` toward 46 then 48; never shrink `high_temp` to 75. Never lower the max: palm-rest and trackpad cooling rides on that airflow.
+
+Stock `t2fanrd` jumps the fans on every launch. After each idle second it back-fills its 5 s mean with ten copies of the new reading, so a compile moves the mean by a fifth of the step at once. `apply fans` builds the same upstream revision ([`48baf96`](https://github.com/GnomedDev/T2FanRD/tree/48baf962697ec3d4d969c74cf601ee8e15b7aeaa), as the Omarchy package) with [`files/t2fanrd/0001-mbp16-1-smooth-ramp-up.patch`](files/t2fanrd/0001-mbp16-1-smooth-ramp-up.patch):
+
+- it holds the previous reading for that second instead;
+- `ramp_up_s=5` spreads a rise from min to max over 5 s. Falls are immediate.
+
+Same curve, same min and max. It installs `/usr/local/sbin/t2fanrd-mbp161` and a unit drop-in; the pacman package is untouched. Stock `t2fanrd` ignores `ramp_up_s`. To revert, delete `/etc/systemd/system/t2fanrd.service.d/10-mbp16-1-ramp.conf`, then `sudo systemctl daemon-reload && sudo systemctl restart t2fanrd`.
 
 ```bash
 ./bin/mbp16-1 apply fans
@@ -773,12 +783,14 @@ low_temp=40
 high_temp=85
 speed_curve=linear
 always_full_speed=false
+ramp_up_s=5
 
 [Fan2]
 low_temp=40
 high_temp=85
 speed_curve=linear
 always_full_speed=false
+ramp_up_s=5
 ```
 
 ```bash
@@ -793,12 +805,45 @@ First `makepkg` on this 8-core 16,1: typically **45–90 minutes**. Plugged in. 
 
 | Piece | Source |
 | --- | --- |
-| Base | Watanare [linux-t2-arch](https://github.com/NoaHimesaka1873/linux-t2-arch) — whatever stock `linux-t2` is on the box after you rebase |
-| t2linux | `T2_PATCH_HASH` from that linux-t2-arch revision |
+| Base | Watanare [linux-t2-arch](https://github.com/NoaHimesaka1873/linux-t2-arch) packaging + config (`b68c1c2`, `7.2.14.arch1-1`), bumped by hand to **7.2.15** (last 7.2, EOL) |
+| t2linux | [`e167207`](https://github.com/t2linux/linux-t2-patches/tree/e16720782ee30fac38486b6c58d32443899c136a): last commit before the 7.3 move (`KVER=7.2.10`) |
 | Intel-primary | yuters **`e77b03f` `0001`–`0005`** after t2linux |
+| Extras | `extra-01`–`07` KaiT2en (Wi-Fi, Bluetooth, PSR, gmux brightness), `extra-08`–`13` klizas (Touch Bar and Wi-Fi across suspend). Sources, rebases and overlap with Omarchy 4.5: [`kernel/PATCHES.md`](kernel/PATCHES.md) |
 | This kernel only | `CONFIG_RUST` **off**, `pkgbase=linux-t2-mbp161`, does **not** `provides=(linux)` |
 
-This pack **vendors** one linux-t2-arch snapshot for the first install (`apply kernel --build`): **`7.2.3.arch1-1`**, t2linux `1ed4126` (`KVER=7.2.3`). Checked 2026-11-08 in an Arch container: `makepkg --nobuild` → every t2linux patch and yuters `0001`–`0005` apply, `Prepared … 7.2.3-arch1-Watanare-T2-1-t2-mbp161`. That snapshot may be older than the recovery `linux-t2` already on the box — expected. After the first boot onto mbp161, `doctor` Kernel notes behind → `update kernel`. Do not pin the running `uname -r` string in scripts — it changes on every rebase (`…-Watanare-T2-<pkgrel>-t2-mbp161`).
+This pack **vendors** the snapshot for the first install (`apply kernel --build`): **`7.2.15.arch1-1`**, t2linux `e167207`. It is ahead of linux-t2-arch `main` on purpose, because `main` pins t2linux patches for 7.3 (see the guard in [D4b](#d4b-after-omarchy-update-stock-linux-t2-moves)). Checked 2026-11-08 in an Arch container (amd64):
+
+- `makepkg --verifysource` passes: checksums and PGP signatures.
+- `makepkg --nobuild` applies every t2linux patch and the 18 local patches, with no reject. It prints `Prepared … 7.2.15-arch1-Watanare-T2-1-t2-mbp161`.
+- The 23 objects the local patches touch compile with 0 warnings.
+- The full `makepkg` build passed in CI on 2026-11-08 (2 h 01 min on 4 CPUs). That run is the draft `linux-t2-mbp161-7.2.15.arch1-1-02257ed` ([Prebuilt packages](#prebuilt-packages)). It has 6515 modules and `kernelrelease` `7.2.15-arch1-Watanare-T2-1-t2-mbp161`.
+- The boot test on the 16,1 is still to do.
+
+#### Prebuilt packages
+
+CI builds this same kernel, so the 16,1 does not have to. On every push to a `kernel-*` branch that changes `kernel/`, [`kernel-build.yml`](.github/workflows/kernel-build.yml) runs `makepkg` in `archlinux:latest`. It checks every source checksum and PGP signature, like the local build. The two packages go to a **draft** release. Only people with write access to this repo can see a draft, and it stays a draft: the build log is public, the binaries are not.
+
+What the toolbox trusts is committed, not downloaded. `kernel/prebuilt.sha256` holds the package hashes. `kernel/prebuilt.inputs` holds one hash over every `kernel/` file `makepkg` reads. Both are copied from the draft (`SHA256SUMS`, `INPUTS`) in a signed commit. `setup` and `apply kernel --pkg` refuse the packages unless both files match byte for byte **and** `kernel/` still hashes to `prebuilt.inputs`. So a package built from another patch set is refused, even when it has the same version.
+
+On this Mac's macOS, before `./bin/mbp16-1 macos`, from the toolbox directory:
+
+```bash
+# Browser, logged in to GitHub: Releases → draft "linux-t2-mbp161 7.2.15.arch1-1 (02257ed), untested"
+# → both .pkg.tar.zst (164 MB + 44 MB) into kernel/prebuilt/. Or, with gh logged in:
+gh release download linux-t2-mbp161-7.2.15.arch1-1-02257ed -R jean-humann/omarchi-dbi-mac-16-1 \
+  -D kernel/prebuilt -p '*.pkg.tar.zst'
+(cd kernel/prebuilt && shasum -a 256 -c ../prebuilt.sha256)   # both lines: OK
+```
+
+`./bin/mbp16-1 macos` checks them again and copies `kernel/prebuilt/` onto KEYBAGS. `mbp16-1 pack` never copies it. On Linux, `setup` installs them with `pacman -U`, then sets the boot order and runs `limine-update`, like `--build`. Any mismatch prints why and offers the compile instead. By hand: `./bin/mbp16-1 apply kernel --pkg [DIR]`.
+
+The headers package is only for out-of-tree modules. This kernel needs none, and the KaiT2en DKMS packages must stay off it (below).
+
+Do not pin the running `uname -r` string in scripts — it changes on every rebase (`…-Watanare-T2-<pkgrel>-t2-mbp161`).
+
+**PSR is new on this kernel** (`extra-05`/`06`, tested upstream on a 16,2). If the panel flickers or freezes, press `e` on the Limine entry and append `i915.enable_psr=0` for one boot. To keep it, add it to `KERNEL_CMDLINE[default]+=` in `/etc/limine-entry-tool.d/t2-mac.conf`, then run `sudo limine-update`.
+
+**Do not install KaiT2en's Arch packages on this kernel** (`t2gmux-dkms`, `t2touchbar-dkms`, `t2bce-dkms`, `kait2en-wireless-runtime-pm-t2`). They replace the drivers that yuters `0001` and the extras patch, or ship the same Wi-Fi patches a second time. That stack belongs on stock `linux-t2` (palier 2).
 
 | Patch | Role |
 | --- | --- |
@@ -810,11 +855,12 @@ This pack **vendors** one linux-t2-arch snapshot for the first install (`apply k
 
 ```bash
 ./bin/mbp16-1 apply kernel --build
+# CI packages instead (no compile): ./bin/mbp16-1 apply kernel --pkg
 # packaging only: ./bin/mbp16-1 apply kernel
 # hand: cd ~/src/linux-t2-mbp161 && makepkg -si && sudo limine-update && mbp16-1-limine-quiet
 ```
 
-`--build` (and `apply sleep`, once the package exists) makes `linux-t2-mbp161` the Limine default, runs `limine-update` (1–3 min), then `mbp16-1-limine-quiet`:
+`--build` or `--pkg` (and `apply sleep`, once the package exists) makes `linux-t2-mbp161` the Limine default, runs `limine-update` (1–3 min), then `mbp16-1-limine-quiet`:
 
 ```bash
 BOOT_ORDER="linux-t2-mbp161, linux-t2, *fallback, Snapshots"
@@ -852,20 +898,25 @@ Then, if doctor Kernel notes behind:
 
 ```bash
 ./bin/mbp16-1 update kernel --check
-./bin/mbp16-1 update kernel       # fetch linux-t2-arch, keep yuters 0001–0005, makepkg
+./bin/mbp16-1 update kernel       # fetch linux-t2-arch, keep the 18 local patches, makepkg
 ```
 
-`--force` rebuilds even if versions already match. `update kernel` copies `pkgver` / `pkgrel` / `T2_PATCH_HASH` / kernel checksums / `config.x86_64` from linux-t2-arch. It keeps `pkgbase=linux-t2-mbp161`, yuters patches, `CONFIG_RUST` off, and does **not** `provides=(linux)`.
+`--force` rebuilds even if versions already match. `update kernel` never moves `kernel/` to an older kernel:
 
-If a yuters patch **rejects** on the new t2linux base, stop. Those five patches need a refresh. Do **not** switch to yuters `main`.
+- **linux-t2-arch older than the vendored tree** (the case today: `7.2.14` < `7.2.15`). Nothing is rebased. `--check` prints `toolbox packaging is ahead of linux-t2-arch`, and `update kernel` builds the vendored tree only if the installed daily package is older.
+- **linux-t2-arch newer and consistent.** It copies `pkgver` / `pkgrel` / `T2_PATCH_HASH` / kernel checksums / `config.x86_64` from linux-t2-arch.
+
+In both cases it keeps `pkgbase=linux-t2-mbp161`, the yuters and `extra-*` patches with their checksums, `CONFIG_RUST` off, and does **not** `provides=(linux)`.
+
+If a yuters or `extra-*` patch **rejects** on the new t2linux base, stop. Refresh that one patch from its pinned upstream ([`kernel/PATCHES.md`](kernel/PATCHES.md), *Refreshing*). Do **not** switch to yuters `main`.
 
 **Upstream consistency guard.** `update kernel` reads the t2linux patch set’s own `version` file (at linux-t2-arch’s `T2_PATCH_HASH`). If its major.minor differs from linux-t2-arch’s `pkgver`, it stops **before** touching `kernel/`; `--check` reports it.
 
 - **As of 2026-11-08 the guard fires.** linux-t2-arch `main` is `7.2.14.arch1-1`, but it pins t2linux `777f516` (`KVER=7.3`).
 - `7001-drm-i915-fbdev-…` then rejects in `prepare()`, and upstream’s own `main` build failed too ([PR #301](https://github.com/NoaHimesaka1873/linux-t2-arch/pull/301) is pending).
-- Stay on the vendored `7.2.3.arch1-1` and re-run `--check` later.
+- The vendored `7.2.15.arch1-1` sidesteps it: its t2linux pin `e167207` is the last commit before the 7.3 move. Re-run `--check` later. The guard only applies when linux-t2-arch is newer than the vendored tree.
 
-Also, t2linux dropped `6001` on 2026-10-15: it pinned the **Radeon Pro 5300M** (subsystem `106b:0219`) at 300 MHz. The vendored 7.2.3 still carries it. That is irrelevant on a 5500M driven Intel-first like here. On a 5300M, wait for the next consistent upstream.
+Also, t2linux dropped `6001` (commit dated 2026-10-15). It pinned the **Radeon Pro 5300** at 300 MHz. The drop was only merged on 2026-10-21, after the 7.3 move, so `e167207` still carries it. `6001` only matches PCI subsystem `106b:0219`, which is the iMac20,1 board. To check yours: `lspci -nnv -d 1002:7340 | grep Subsystem`. With any other subsystem it does nothing.
 
 ### D5. Reboot onto linux-t2-mbp161 and prove s2idle
 
@@ -904,19 +955,42 @@ ip -br link    # T2 cdc_ncm, not wlan
 ./bin/mbp16-1 apply touchid
 ```
 
-Clone is usually **under a minute**. `install.sh` is **a few minutes** (packages, units, `/etc/t2-touchid.conf`). If it exits asking you to edit that file (NCM iface, **BridgeOS** link-local peer, macOS uid, special bag), edit it and rerun `apply touchid`. Leave s2idle. PAM: [`docs/PAM_AUTH.md`](https://github.com/jean-humann/t2-touchid-linux/blob/mbp161-mixed-envelope/docs/PAM_AUTH.md).
+Clone is usually **under a minute**. `install.sh` is **a few minutes** (packages incl. **`dkms`**, units, `/etc/t2-touchid.conf`). Its first run only writes that file and exits 2. Fill it as root, then rerun `apply touchid`. Leave s2idle. PAM: [`docs/PAM_AUTH.md`](https://github.com/jean-humann/t2-touchid-linux/blob/mbp161-mixed-envelope/docs/PAM_AUTH.md).
+
+| Key | Value |
+| --- | --- |
+| `T2_TOUCHID_INTERFACE` | `ip -br link`: the `cdc_ncm` link, MAC `ac:de:48:00:11:22` |
+| `T2_TOUCHID_HOST` | the **BridgeOS** link-local peer (below) |
+| `T2_TOUCHID_MACOS_USER_ID` | `tar -tzf …/t2-touchid-catacomb.tar.gz \| grep user_`: `user_000001f5.cat` is 0x1f5 = **501** |
+| `T2_TOUCHID_SPECIAL_BAG` | minus that uid: **`-501`** |
+
+NetworkManager runs DHCP on the T2 link, gives up after 45 s and removes the link-local address, so peer discovery comes back empty or only sometimes. Unmanage the link first (once installed, `t2-bridge-network.service` does this at every boot):
+
+```bash
+IF=enx…   # the cdc_ncm link
+sudo nmcli device set "$IF" managed no
+sudo ip -6 addr add fe80::aede:48ff:fe00:1122/64 dev "$IF"   # EUI-64 of the generic MAC; "File exists" is fine
+ping -6 -c2 -I "$IF" "ff02::1%$IF"
+ip -6 neigh show dev "$IF"   # the fe80:: that is not yours is BridgeOS
+```
+
+**`dkms`** is what installs `t2_sep_transport` where `modprobe` finds it, and rebuilds it after kernel upgrades. Without it `install.sh` warns `dkms is unavailable` and `t2-sep-transport.service` dies with `Module t2_sep_transport not found`. `mbp16-1 deps touchid` installs it.
 
 16,1 envelope: length **100**, header `0x50`, version **1**. Digest **`v1-skip-cal`**. First mute often `-110` (no 30 s shutdown after macOS Touch ID). **One transport start per boot.**
 
 By hand if not using the toolbox:
 
 ```bash
+omarchy-pkg-add base-devel python fprintd dkms
 git clone -b mbp161-mixed-envelope https://github.com/jean-humann/t2-touchid-linux.git
 cd t2-touchid-linux
 sudo ./install.sh
+sudo install -d -o root -g root -m 0700 /run/t2-touchid   # install.sh leaves it 0755; provisioning refuses that
 ```
 
-First bring-up — disable autostart for one controlled start:
+`apply touchid` does that last `install -d` itself and prints the steps below, numbered.
+
+First bring-up: disable autostart for one controlled start (the readiness check fails while these are enabled):
 
 ```bash
 sudo systemctl disable fprintd.service t2-sep-transport.service \
@@ -924,10 +998,24 @@ sudo systemctl disable fprintd.service t2-sep-transport.service \
   t2-biometric-ready.service
 ```
 
+User keybag and Catacomb from the private stick. Every file on the stick is world-readable, and provisioning refuses an archive that is not `0600`:
+
 ```bash
-sudo t2-touchid-provision-catacomb /private/path/t2-touchid-catacomb.tar.gz
+KB=/run/media/$USER/KEYBAGS/t2-touchid-export
+tar -xzf "$KB/t2-keybags.tar.gz" -O state/path-map.txt | grep Library/Keychains/
+#   pick the candidate-NNNN that maps to ~/Library/Keychains/<UUID>/user.kb
+tar -xzf "$KB/t2-keybags.tar.gz" -O state/candidate-NNNN \
+  | sudo sh -c 'umask 077; cat >/var/lib/t2-touchid/user.kb'
+sudo install -m 0600 "$KB/t2-touchid-catacomb.tar.gz" /root/
+sudo t2-touchid-provision-catacomb /root/t2-touchid-catacomb.tar.gz
+sudo rm /root/t2-touchid-catacomb.tar.gz
+```
+
+```bash
+sudo systemctl start t2-biometric-port-refresh.service   # once: BridgeOS link + BiometricKit port
 sudo tools/check-t2-linux-readiness.sh   # RESULT: READY
 sudo systemctl start t2-sep-transport.service
+sudo tools/check-t2-linux-readiness.sh   # RESULT: INITIALIZED
 ls -l /dev/t2-aks
 ```
 
@@ -939,12 +1027,21 @@ ls -l /dev/t2-aks
 
 ```bash
 sudo systemctl start t2-keybag-load.service
-sudo t2-keybag-unlock
+sudo t2-keybag-unlock   # macOS login password
 sudo systemctl start fprintd.service
 fprintd-verify -f any "$USER"
 ```
 
-Use **`-f any`**. Keep a **root shell** on another TTY:
+Use **`-f any`**, and run `fprintd-verify` from a terminal **on the Mac's desktop**: fprintd only lets an active local session claim the sensor, so over SSH it fails with `caller process identity unavailable`.
+
+Then turn autostart back on, so the next boot brings Touch ID up by itself:
+
+```bash
+sudo systemctl enable t2-sep-transport.service t2-keybag-load.service \
+  t2-credential-unlock.service t2-biometric-ready.service fprintd.service
+```
+
+Keep a **root shell** on another TTY:
 
 ```bash
 sudo tools/install-pam.sh
@@ -952,6 +1049,8 @@ omarchy restart shell
 pkexec bash -c 'id -u'
 pkexec bash -c 'id -u'   # second still fingerprint
 ```
+
+After each boot, the **first `sudo`** asks your Linux password, then (hidden prompt) the **macOS** login password, to unlock the keybags. Touch ID works from then on. `tools/provision-credential.sh` + `t2-credential-unlock.service` can unlock at boot instead, but this Mac has no usable TPM: the macOS password is then sealed with a host key that root can read.
 
 | Action | Lid open | Lid closed |
 | --- | --- | --- |
@@ -997,7 +1096,7 @@ The [Easy path](#easy-path) is the order (`macos` → Option-boot **Free space**
 5. Reboot unplugged onto **`linux-t2-mbp161`**. Two lid-only + one attached s2idle. Not on stock.
 6. **E** `apply touchid` (refuses until daily kernel / DPM low / NCM), then catacomb from `t2-touchid-export/`. Not Omarchy Fingerprint.
 
-`setup` is gpu → display → input → fans → wifi → power → sleep, then `apply kernel --build`, unless this boot still has `module_blacklist=amdgpu` (GPU files only, then reboot). `doctor` and the `apply …` pieces are for checks and reruns.
+`setup` is gpu → display → input → fans → wifi → power → sleep, then the sleep kernel (`apply kernel --pkg` if [`kernel/prebuilt/`](#prebuilt-packages) checks out, else `--build`), unless this boot still has `module_blacklist=amdgpu` (GPU files only, then reboot). `doctor` and the `apply …` pieces are for checks and reruns.
 
 ---
 
@@ -1036,7 +1135,8 @@ macOS remains SEP recovery. Reinstalling Omarchy means re-exporting keybags if `
 | `/etc/systemd/system/mbp16-1-lock-rearm.service` | `sleep.target` ExecStop — after thaw, not a frozen `system-sleep` hook |
 | `~/.local/bin/mbp16-1-limine-quiet` | Limine `timeout: 1`, `quiet: yes` |
 | `/etc/vconsole.conf` | `KEYMAP=mac-fr` (French only) |
-| `/etc/t2fand.conf` | linear 40–85 |
+| `/etc/t2fand.conf` | linear 40–85, `ramp_up_s=5` |
+| `/etc/systemd/system/t2fanrd.service.d/10-mbp16-1-ramp.conf` | run `/usr/local/sbin/t2fanrd-mbp161` (patched ramp, **built** by `apply fans`) |
 | `/etc/mbp16-1-powerd.conf` | Super envelopes |
 | `/etc/systemd/system/mbp16-1-powerd.service` | occupancy + skin RAPL/EPP |
 | `/etc/limine-entry-tool.d/t2-mac.conf` | IOMMU, **no** `deep` (overwrites the 4.5 `fix-t2.sh` one) |
@@ -1101,7 +1201,8 @@ echo s2idle | sudo tee /sys/power/mem_sleep
 | t2linux | [hybrid-graphics](https://wiki.t2linux.org/guides/hybrid-graphics/), [postinstall](https://wiki.t2linux.org/guides/postinstall/), [Wi-Fi](https://wiki.t2linux.org/guides/wifi-bluetooth/) |
 | USB-C same model | [Dan Wahlin](https://blog.codewithdan.com/how-i-cut-gpu-power-from-18-w-to-4-w-on-an-omarchy-macbook-pro-with-github-copilot-cli/) |
 | Lid names | [sk3pper](https://sk3pper.github.io/posts/workstation-setup/lid-close-freeze-on-t2-mbp19/); [omarchy#7855](https://github.com/omacom/omarchy/discussions/7855) |
-| Kernel upstream | [linux-t2-arch](https://github.com/NoaHimesaka1873/linux-t2-arch) `main` `7.2.14.arch1-1` pins [t2linux patches](https://github.com/t2linux/linux-t2-patches) `KVER=7.3` ([#301](https://github.com/NoaHimesaka1873/linux-t2-arch/pull/301)) |
+| Kernel upstream | [linux-t2-arch](https://github.com/NoaHimesaka1873/linux-t2-arch) `main` `7.2.14.arch1-1` pins [t2linux patches](https://github.com/t2linux/linux-t2-patches) `KVER=7.3` ([#301](https://github.com/NoaHimesaka1873/linux-t2-arch/pull/301)). Vendored here: 7.2.15 + t2linux [`e167207`](https://github.com/t2linux/linux-t2-patches/tree/e16720782ee30fac38486b6c58d32443899c136a) (`KVER=7.2.10`) |
+| Kernel extras | [KaiT2en-Fedora `8de9546`](https://github.com/kaiT2en/KaiT2en-Fedora/tree/8de95468f08c6db37924bcb8f9adc12c769add71/patches/runtime) `patches/runtime` (01–07); [klizas/t2-kernel-patches `5181c93`](https://github.com/klizas/t2-kernel-patches/tree/5181c93904deb02ddfea64e96608b7ebffb8ca2a) (08–13). Map: [`kernel/PATCHES.md`](kernel/PATCHES.md) |
 | Sleep kernel | [yuters `e77b03f`](https://github.com/yuters/mbp161-hybrid-graphics/blob/e77b03fe0902216a7544208f2988b4cd391423a1/kernel/README.md). Not [`main`](https://github.com/yuters/mbp161-hybrid-graphics) (since `e77b03f`: Falcon SMC, `cdc_ncm` S3, hibernation, 4K@60 adapter, t2bce S4 — still not used here). [yuters#1](https://github.com/yuters/mbp161-hybrid-graphics/issues/1) |
 | Boot GPU | [KaiT2en](https://github.com/kaiT2en/KaiT2en-Fedora) (deqrocks): `gpu-power-prefs` + `t2-gpu-preboot` instead of `force_igd`; t2linux [PR #77](https://github.com/t2linux/linux-t2-patches/pull/77) (not adopted) |
 | LUKS keyboard | [omarchy#17755](https://github.com/omacom/omarchy/issues/17755) (`zz-omarchy-kernel-modules.conf` drops `t2bce_vhci`) |

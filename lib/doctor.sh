@@ -459,26 +459,41 @@ mbp16_1_doctor() {
   fi
 
   section "Touch ID" "T2 SEP. Not Omarchy Fingerprint. Never unload transport."
-  local ncm=0 bl=0 userspace=0
+  local ncm=0 mp=0 userspace=0 ool=
+  local mpconf=/etc/modprobe.d/t2-sep-transport.conf
   if module_loaded cdc_ncm || grep -Rsq 'PRODUCT=5ac/8233' /sys/bus/usb/devices/*/uevent 2>/dev/null; then
     ncm=1
   fi
-  grep -q 'blacklist t2_sep_transport' /etc/modprobe.d/t2-sep-transport.conf 2>/dev/null && bl=1
+  # install.sh writes an observation-only modprobe.d file, not a blacklist. A
+  # PCI-modalias autoload then registers no SEP DMA, and t2-sep-transport-load
+  # swaps that instance for the register_ool=1 one. Forcing register_ool or
+  # probe_capabilities in modprobe.d is what breaks it (-110 at the early load).
+  if [[ -f $mpconf ]] &&
+      ! grep -Eq '^[[:space:]]*options[[:space:]]+t2_sep_transport[[:space:]].*(register_ool|probe_capabilities)=1' "$mpconf"; then
+    mp=1
+  fi
   if [[ -e /opt/t2-touchid ]] || command -v t2-keybag-unlock >/dev/null 2>&1; then
     userspace=1
   fi
-  if ((ncm && bl && userspace)); then
-    if module_loaded t2_sep_transport; then
-      ok "NCM  ·  transport up  ·  userspace"
+  [[ -r /sys/module/t2_sep_transport/parameters/register_ool ]] &&
+    ool=$(</sys/module/t2_sep_transport/parameters/register_ool)
+  if ((ncm && mp && userspace)); then
+    if [[ -e /dev/t2-aks ]]; then
+      ok "NCM  ·  transport up (/dev/t2-aks)  ·  userspace"
+    elif [[ $ool == Y ]]; then
+      info "transport active without /dev/t2-aks" \
+        "do not retry or unload this boot: reboot, then systemctl status t2-sep-transport"
+    elif module_loaded t2_sep_transport; then
+      ok "NCM  ·  transport observation-only (not started)  ·  userspace"
     else
-      ok "NCM  ·  autoload blacklisted  ·  userspace"
+      ok "NCM  ·  transport not started  ·  userspace"
     fi
-  elif ((userspace == 0 && ncm == 0 && bl == 0)); then
+  elif ((userspace == 0 && ncm == 0 && mp == 0)); then
     info "Not installed yet" "mbp16-1 apply touchid"
     ui_next "mbp16-1 apply touchid"
   else
     ((ncm)) || info "T2 NCM not seen" "needed for Touch ID"
-    ((bl)) || info "Transport blacklist missing" "mbp16-1 apply touchid"
+    ((mp)) || info "$mpconf missing or forces register_ool" "mbp16-1 apply touchid"
     ((userspace)) || info "t2-touchid missing" "mbp16-1 apply touchid"
     if module_loaded t2_sep_transport; then
       hint "transport loaded — do not unload, do not start a second one this boot"

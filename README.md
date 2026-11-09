@@ -946,19 +946,42 @@ ip -br link    # T2 cdc_ncm, not wlan
 ./bin/mbp16-1 apply touchid
 ```
 
-Clone is usually **under a minute**. `install.sh` is **a few minutes** (packages, units, `/etc/t2-touchid.conf`). If it exits asking you to edit that file (NCM iface, **BridgeOS** link-local peer, macOS uid, special bag), edit it and rerun `apply touchid`. Leave s2idle. PAM: [`docs/PAM_AUTH.md`](https://github.com/jean-humann/t2-touchid-linux/blob/mbp161-mixed-envelope/docs/PAM_AUTH.md).
+Clone is usually **under a minute**. `install.sh` is **a few minutes** (packages incl. **`dkms`**, units, `/etc/t2-touchid.conf`). Its first run only writes that file and exits 2. Fill it as root, then rerun `apply touchid`. Leave s2idle. PAM: [`docs/PAM_AUTH.md`](https://github.com/jean-humann/t2-touchid-linux/blob/mbp161-mixed-envelope/docs/PAM_AUTH.md).
+
+| Key | Value |
+| --- | --- |
+| `T2_TOUCHID_INTERFACE` | `ip -br link`: the `cdc_ncm` link, MAC `ac:de:48:00:11:22` |
+| `T2_TOUCHID_HOST` | the **BridgeOS** link-local peer (below) |
+| `T2_TOUCHID_MACOS_USER_ID` | `tar -tzf …/t2-touchid-catacomb.tar.gz \| grep user_`: `user_000001f5.cat` is 0x1f5 = **501** |
+| `T2_TOUCHID_SPECIAL_BAG` | minus that uid: **`-501`** |
+
+NetworkManager runs DHCP on the T2 link, gives up after 45 s and removes the link-local address, so peer discovery comes back empty or only sometimes. Unmanage the link first (once installed, `t2-bridge-network.service` does this at every boot):
+
+```bash
+IF=enx…   # the cdc_ncm link
+sudo nmcli device set "$IF" managed no
+sudo ip -6 addr add fe80::aede:48ff:fe00:1122/64 dev "$IF"   # EUI-64 of the generic MAC; "File exists" is fine
+ping -6 -c2 -I "$IF" "ff02::1%$IF"
+ip -6 neigh show dev "$IF"   # the fe80:: that is not yours is BridgeOS
+```
+
+**`dkms`** is what installs `t2_sep_transport` where `modprobe` finds it, and rebuilds it after kernel upgrades. Without it `install.sh` warns `dkms is unavailable` and `t2-sep-transport.service` dies with `Module t2_sep_transport not found`. `mbp16-1 deps touchid` installs it.
 
 16,1 envelope: length **100**, header `0x50`, version **1**. Digest **`v1-skip-cal`**. First mute often `-110` (no 30 s shutdown after macOS Touch ID). **One transport start per boot.**
 
 By hand if not using the toolbox:
 
 ```bash
+omarchy-pkg-add base-devel python fprintd dkms
 git clone -b mbp161-mixed-envelope https://github.com/jean-humann/t2-touchid-linux.git
 cd t2-touchid-linux
 sudo ./install.sh
+sudo install -d -o root -g root -m 0700 /run/t2-touchid   # install.sh leaves it 0755; provisioning refuses that
 ```
 
-First bring-up — disable autostart for one controlled start:
+`apply touchid` does that last `install -d` itself and prints the steps below, numbered.
+
+First bring-up: disable autostart for one controlled start (the readiness check fails while these are enabled):
 
 ```bash
 sudo systemctl disable fprintd.service t2-sep-transport.service \
@@ -966,10 +989,24 @@ sudo systemctl disable fprintd.service t2-sep-transport.service \
   t2-biometric-ready.service
 ```
 
+User keybag and Catacomb from the private stick. Every file on the stick is world-readable, and provisioning refuses an archive that is not `0600`:
+
 ```bash
-sudo t2-touchid-provision-catacomb /private/path/t2-touchid-catacomb.tar.gz
+KB=/run/media/$USER/KEYBAGS/t2-touchid-export
+tar -xzf "$KB/t2-keybags.tar.gz" -O state/path-map.txt | grep Library/Keychains/
+#   pick the candidate-NNNN that maps to ~/Library/Keychains/<UUID>/user.kb
+tar -xzf "$KB/t2-keybags.tar.gz" -O state/candidate-NNNN \
+  | sudo sh -c 'umask 077; cat >/var/lib/t2-touchid/user.kb'
+sudo install -m 0600 "$KB/t2-touchid-catacomb.tar.gz" /root/
+sudo t2-touchid-provision-catacomb /root/t2-touchid-catacomb.tar.gz
+sudo rm /root/t2-touchid-catacomb.tar.gz
+```
+
+```bash
+sudo systemctl start t2-biometric-port-refresh.service   # once: BridgeOS link + BiometricKit port
 sudo tools/check-t2-linux-readiness.sh   # RESULT: READY
 sudo systemctl start t2-sep-transport.service
+sudo tools/check-t2-linux-readiness.sh   # RESULT: INITIALIZED
 ls -l /dev/t2-aks
 ```
 
@@ -981,12 +1018,21 @@ ls -l /dev/t2-aks
 
 ```bash
 sudo systemctl start t2-keybag-load.service
-sudo t2-keybag-unlock
+sudo t2-keybag-unlock   # macOS login password
 sudo systemctl start fprintd.service
 fprintd-verify -f any "$USER"
 ```
 
-Use **`-f any`**. Keep a **root shell** on another TTY:
+Use **`-f any`**, and run `fprintd-verify` from a terminal **on the Mac's desktop**: fprintd only lets an active local session claim the sensor, so over SSH it fails with `caller process identity unavailable`.
+
+Then turn autostart back on, so the next boot brings Touch ID up by itself:
+
+```bash
+sudo systemctl enable t2-sep-transport.service t2-keybag-load.service \
+  t2-credential-unlock.service t2-biometric-ready.service fprintd.service
+```
+
+Keep a **root shell** on another TTY:
 
 ```bash
 sudo tools/install-pam.sh
@@ -994,6 +1040,8 @@ omarchy restart shell
 pkexec bash -c 'id -u'
 pkexec bash -c 'id -u'   # second still fingerprint
 ```
+
+After each boot, the **first `sudo`** asks your Linux password, then (hidden prompt) the **macOS** login password, to unlock the keybags. Touch ID works from then on. `tools/provision-credential.sh` + `t2-credential-unlock.service` can unlock at boot instead, but this Mac has no usable TPM: the macOS password is then sealed with a host key that root can read.
 
 | Action | Lid open | Lid closed |
 | --- | --- | --- |

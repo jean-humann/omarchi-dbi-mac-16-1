@@ -17,7 +17,10 @@ DEPS_CORE_PKGS=(python git pciutils jq socat)
 DEPS_KERNEL_PKGS=(bc cpio pahole xxhash libelf openssl perl python tar xz zlib zstd git gettext)
 
 # Touch ID install.sh: python venv + C module against this boot's headers + fprintd.
-DEPS_TOUCHID_PKGS=(python fprintd)
+# dkms is what puts t2_sep_transport where modprobe finds it. Without dkms,
+# install.sh only copies the .ko to /usr/local/lib and the transport unit dies
+# with "Module t2_sep_transport not found". It also rebuilds after kernel upgrades.
+DEPS_TOUCHID_PKGS=(python fprintd dkms)
 
 have_pkg() {
   pacman -Q "$1" >/dev/null 2>&1

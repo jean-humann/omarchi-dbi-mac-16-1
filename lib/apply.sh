@@ -446,22 +446,47 @@ apply_touchid() {
   run as_root "$tree/install.sh" || {
     local st=$?
     if [[ $st -eq 2 ]]; then
-      section "Your move"
-      hint "edit /etc/t2-touchid.conf (NCM iface, BridgeOS link-local, macOS uid)"
-      hint "then rerun: mbp16-1 apply touchid"
+      section "Your move" "edit /etc/t2-touchid.conf as root, then rerun: mbp16-1 apply touchid"
+      step 1 "T2_TOUCHID_INTERFACE: ip -br link" "the cdc_ncm link (MAC ac:de:48:00:11:22), not wlan"
+      step 2 "T2_TOUCHID_HOST: sudo nmcli device set IF managed no; sudo ip -6 addr add fe80::aede:48ff:fe00:1122/64 dev IF" \
+        "NetworkManager's DHCP on that link gives up after 45 s and drops the link-local, so unmanage it and put the EUI-64 of the generic MAC back"
+      step 3 "ping -6 -c2 -I IF ff02::1%IF; ip -6 neigh show dev IF" "the fe80:: neighbour that is not your own address is BridgeOS"
+      step 4 "T2_TOUCHID_MACOS_USER_ID: tar -tzf KEYBAGS/t2-touchid-export/t2-touchid-catacomb.tar.gz | grep user_" \
+        "user_000001f5.cat is 0x1f5 = 501; T2_TOUCHID_SPECIAL_BAG is then -501"
       return 0
     fi
     die "t2-touchid install.sh failed ($st)"
   }
+  # install.sh makes /run/t2-touchid as the parent of workers/, so it gets 0755.
+  # t2-touchid-provision-catacomb refuses anything but 0700 (keybag-load sets
+  # 0700 too, but later). /run is tmpfs: this lasts until the next boot.
+  run as_root install -d -o root -g root -m 0700 /run/t2-touchid
   install_lock_rearm
+  # Printed for the user to paste: $USER must stay literal.
+  # shellcheck disable=SC2016
+  local kb='/run/media/$USER/KEYBAGS/t2-touchid-export'
   section "Next (once, this boot)" \
     "Do not unload t2_sep_transport. Do not start a second transport. Keep a root shell on another TTY before PAM."
-  step 1 "sudo t2-touchid-provision-catacomb /private/path/t2-touchid-catacomb.tar.gz" "never gist that archive"
-  step 2 "sudo tools/check-t2-linux-readiness.sh" "from $tree — want RESULT: READY"
-  step 3 "sudo systemctl start t2-sep-transport.service" "one start; never unload. Stop on -110."
-  step 4 "sudo t2-keybag-unlock && sudo systemctl start fprintd.service"
-  step 5 "fprintd-verify -f any \"\$USER\""
-  step 6 "sudo $tree/tools/install-pam.sh && omarchy restart shell"
+  step 1 "sudo systemctl disable fprintd.service t2-sep-transport.service t2-keybag-load.service t2-credential-unlock.service t2-biometric-ready.service" \
+    "install.sh enabled them; the readiness check fails until they are disabled for manual bring-up"
+  step 2 "KB=$kb; tar -xzf \$KB/t2-keybags.tar.gz -O state/path-map.txt | grep Library/Keychains/" \
+    "pick the candidate-NNNN that maps to ~/Library/Keychains/<UUID>/user.kb"
+  step 3 "tar -xzf \$KB/t2-keybags.tar.gz -O state/candidate-NNNN | sudo sh -c 'umask 077; cat >/var/lib/t2-touchid/user.kb'" \
+    "the readiness check wants it 600 root:root. Never gist it."
+  step 4 "sudo install -m 0600 \$KB/t2-touchid-catacomb.tar.gz /root/ && sudo t2-touchid-provision-catacomb /root/t2-touchid-catacomb.tar.gz" \
+    "it refuses an archive that is not 0600, and every file on the stick is world-readable. Then: sudo rm /root/t2-touchid-catacomb.tar.gz"
+  step 5 "sudo systemctl start t2-biometric-port-refresh.service" \
+    "once: brings up the BridgeOS link and caches the BiometricKit port. Do not repeat it."
+  step 6 "sudo $tree/tools/check-t2-linux-readiness.sh" "want RESULT: READY"
+  step 7 "sudo systemctl start t2-sep-transport.service" "one start; never unload. Stop on -110. Then step 6 again: want RESULT: INITIALIZED"
+  step 8 "sudo systemctl start t2-keybag-load.service && sudo t2-keybag-unlock && sudo systemctl start fprintd.service" \
+    "t2-keybag-unlock asks for the macOS login password"
+  step 9 "fprintd-verify -f any \"\$USER\"" \
+    "from a desktop terminal: over SSH the claim fails with 'caller process identity unavailable' (no active local session)"
+  step 10 "sudo systemctl enable t2-sep-transport.service t2-keybag-load.service t2-credential-unlock.service t2-biometric-ready.service fprintd.service" \
+    "back to the state install.sh set, so the next boot brings Touch ID up by itself"
+  step 11 "sudo $tree/tools/install-pam.sh && omarchy restart shell" "then pkexec bash -c 'id -u' twice: fingerprint both times"
+  hint "After each boot, the first sudo asks the Linux password, then the macOS one, to unlock the keybags."
   hint "Operator guide: $tree/docs/PAM_AUTH.md"
   if ! ask_yn "I will follow that sequence and will not unload t2_sep_transport." y; then
     die "stopped" "When you are ready: start at step 1 above. Do not skip the gate."

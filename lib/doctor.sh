@@ -491,6 +491,10 @@ mbp16_1_doctor() {
     info "fprintd missing" "mbp16-1 deps touchid"
     ui_next "mbp16-1 deps touchid"
   fi
+  if ! have_pkg dkms; then
+    info "dkms missing" "t2_sep_transport is then not where modprobe looks, nor rebuilt after kernel upgrades: mbp16-1 deps touchid"
+    ui_next "mbp16-1 deps touchid"
+  fi
   if systemctl is-enabled mbp16-1-lock-rearm.service >/dev/null 2>&1; then
     ok "lock rearm after s2idle"
   elif [[ -x $HOME/.local/bin/mbp16-1-lock-rearm ]]; then

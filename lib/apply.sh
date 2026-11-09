@@ -175,7 +175,11 @@ apply_power() {
   apply_powerd
   if command -v omarchy-powerprofiles-set >/dev/null 2>&1; then
     if ((ASSUME_YES)) || ask_yn "Set AC Super profile to balanced?" y; then
-      run omarchy-powerprofiles-set ac balanced
+      # polkit allows switch-profile only from the active desktop session, so
+      # this fails over SSH. It is a preference: do not stop setup for it.
+      run omarchy-powerprofiles-set ac balanced ||
+        warn "AC Super profile not set" \
+          "polkit refuses it outside the desktop session. Later, in a desktop terminal: omarchy-powerprofiles-set ac balanced"
     else
       log "left AC Super profile unchanged"
     fi
@@ -307,15 +311,21 @@ apply_wifi() {
   require_16_1
   is_linux || die "apply wifi is Linux-only"
   ensure_core
-  if command -v lspci >/dev/null 2>&1 && lspci -nn 2>/dev/null | grep -q '14e4:4488'; then
-    die "PCI shows BCM4377 (14e4:4488)" \
-      "This brcmfmac snippet is for 16,1 BCM4364 (14e4:4464). Do not copy 4377 suspend unloads here."
-  fi
-  if command -v lspci >/dev/null 2>&1 && ! lspci -nn 2>/dev/null | grep -q '14e4:4464'; then
-    warn "did not see BCM4364 14e4:4464 on PCI" "continuing with the 16,1 brcmfmac workaround anyway"
-    if ! ask_yn "Install brcmfmac feature_disable=0x82000 anyway?" n; then
-      log "skipped wifi snippet"
-      return 0
+  local pci
+  if command -v lspci >/dev/null 2>&1; then
+    # Whole listing first. lspci -nn | grep -q dies of SIGPIPE (141) once its
+    # output passes one buffer, and pipefail then hides the BCM4364.
+    pci=$(lspci -nn 2>/dev/null || true)
+    if [[ $pci == *'14e4:4488'* ]]; then
+      die "PCI shows BCM4377 (14e4:4488)" \
+        "This brcmfmac snippet is for 16,1 BCM4364 (14e4:4464). Do not copy 4377 suspend unloads here."
+    fi
+    if [[ $pci != *'14e4:4464'* ]]; then
+      warn "did not see BCM4364 14e4:4464 on PCI" "continuing with the 16,1 brcmfmac workaround anyway"
+      if ! ask_yn "Install brcmfmac feature_disable=0x82000 anyway?" n; then
+        log "skipped wifi snippet"
+        return 0
+      fi
     fi
   fi
   expect "Wi-Fi (BCM4364 / brcmfmac)" \

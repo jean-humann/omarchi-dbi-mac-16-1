@@ -941,7 +941,17 @@ macos_export() {
   fi
   (cd "$tools" && ./macos-export-touchid-catacomb.sh --no-reboot)
   mkdir -p "$out"
-  cp -a "$tools"/t2-keybags.tar.gz "$tools"/t2-touchid-catacomb.tar.gz "$out/"
+  # The helpers leave both tars owned by root, mode 600, so a plain cp fails
+  # with "Permission denied". Read each one as root and write the copy as this
+  # user, then compare the two byte for byte.
+  local tar
+  for tar in t2-keybags.tar.gz t2-touchid-catacomb.tar.gz; do
+    (umask 077 && as_root cat "$tools/$tar" >"$out/$tar.tmp") || \
+      die "could not copy $tar to $out" "is the private stick full or read-only?"
+    as_root cmp -s "$tools/$tar" "$out/$tar.tmp" || \
+      die "$tar on $out does not match the export" "re-run: mbp16-1 macos export"
+    mv -f "$out/$tar.tmp" "$out/$tar"
+  done
   chmod 600 "$out"/t2-keybags.tar.gz "$out"/t2-touchid-catacomb.tar.gz 2>/dev/null || true
   macos_copy_pack
   section "Done"

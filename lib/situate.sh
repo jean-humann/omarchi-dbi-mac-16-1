@@ -258,8 +258,11 @@ precheck_gpu() {
   require_16_1
   is_linux || die "apply gpu is Linux-only"
   situate_pci
+  # amdgpu starts every boot at auto. Only apply power can pin it low, so
+  # refusing here would block a fresh install for good. Warn and go on.
   if [[ $(dpm_level) == auto ]]; then
-    die "AMD DPM is auto" "Do not continue. Pin low with Randy’s service later (never write auto)."
+    warn "AMD DPM is auto (amdgpu default)" \
+      "apply power pins it low. Do not suspend or plug USB-C before that. Never write auto."
   fi
   if amdgpu_blacklisted; then
     warn "cmdline has module_blacklist=amdgpu" \
@@ -278,8 +281,9 @@ precheck_power() {
     die "DPM sysfs missing — amdgpu not bound" \
       "Reboot without module_blacklist=amdgpu, confirm /dev/dri/amd-dgpu, then retry."
   fi
+  # auto is the amdgpu default after boot: the state this step exists to fix.
   if [[ $(dpm_level) == auto ]]; then
-    die "AMD DPM is auto" "Do not continue. Never write auto on this topology."
+    info "AMD DPM is auto (amdgpu default)" "pinning low now. Never write auto on this topology."
   fi
   local amd
   amd=$(amd_device_id)

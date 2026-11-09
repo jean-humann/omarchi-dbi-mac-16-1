@@ -202,7 +202,9 @@ apply_powerd() {
   run as_root install -m 0644 "$crate/mbp16-1-powerd.conf" /etc/mbp16-1-powerd.conf
   run as_root install -m 0644 "$crate/mbp16-1-powerd.service" /etc/systemd/system/mbp16-1-powerd.service
   run as_root systemctl daemon-reload
-  run as_root systemctl enable --now mbp16-1-powerd.service
+  run as_root systemctl enable mbp16-1-powerd.service
+  # restart, not enable --now: a running daemon would keep the old binary/conf.
+  run as_root systemctl restart mbp16-1-powerd.service
 }
 
 apply_display() {

@@ -399,6 +399,13 @@ mbp16_1_doctor() {
     ((ac)) || info "AC Super is not balanced" "omarchy-powerprofiles-set ac balanced"
     ((turbo)) || true
   fi
+  local pstatus
+  pstatus=$(cat /run/mbp16-1-powerd/status 2>/dev/null || true)
+  if ((powerd)) && [[ -n $pstatus && $pstatus != *'"pl2_target_w"'* ]]; then
+    info "powerd predates per-profile PL2" "mbp16-1 apply power"
+  elif [[ $pstatus == *'"pl2_ok":false'* ]]; then
+    info "powerd cannot hold RAPL PL2" "journalctl -u mbp16-1-powerd"
+  fi
 
   subsection "Fans:"
   local fans=0 linear=0 temps=0 running=0

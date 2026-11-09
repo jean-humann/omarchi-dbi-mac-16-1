@@ -582,13 +582,13 @@ Do not bounce `low`/`high` from `gpu_busy_percent`. Do not install `mbp161-amdgp
 omarchy-powerprofiles-set ac balanced
 ```
 
-| Super | Idle desk | Many busy cores | Skin hard stop |
-| --- | --- | --- | --- |
-| power-saver | 22 W, `power` | 32 W, `balance_power` | 40 °C |
-| **balanced** (AC here) | **40 W**, `balance_power` | 58 W, `balance_performance` | 43 °C |
-| performance | 45 W, `balance_performance` | 80 W, `performance` | 43 °C |
+| Super | Idle desk | Many busy cores | PL2 | Skin hard stop |
+| --- | --- | --- | --- | --- |
+| power-saver | 22 W, `power` | 32 W, `balance_power` | 70 W | 40 °C |
+| **balanced** (AC here) | **40 W**, `balance_power` | 48 W, `balance_performance` | 70 W | 43 °C |
+| performance | 45 W, `balance_performance` | 80 W, `performance` | firmware 125 W | 43 °C |
 
-Never writes DPM, `no_turbo`, fans, `brcmfmac`, `t2bce`. Status: `cat /run/mbp16-1-powerd/status`. Stop restores firmware PL1 **100 W**.
+Balanced 48 W + PL2 70 W keeps the die near 84 °C under sustained all-core load instead of pinning TjMax, at about −2 % throughput. Use `performance` for long full builds. Never writes DPM, `no_turbo`, fans, `brcmfmac`, `t2bce`. Status: `cat /run/mbp16-1-powerd/status`. Stop restores firmware PL1 **100 W** and PL2 **125 W**.
 
 ### C6. apply input — keyboard, trackpad, SDDM
 

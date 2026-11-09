@@ -94,7 +94,7 @@ Stock Omarchy 4.5 on this 16,1 already has T2 audio, Broadcom firmware, `t2fanrd
 | Touch Bar | Config 1 | Omarchy ISO (in-tree). This recipe **stays** USB config 1 |
 | Brightness keys | Yes | this toolbox — `gmux_backlight` (not Touch Bar backlight) |
 | Wi-Fi (BCM4364) | Yes | Omarchy ISO firmware + `brcmfmac` WPA workaround (Omarchy 4.5 writes it too). IPv6 can be slow: [A/B test](docs/ab-tests-audio-wifi.md#3-wi-fi-ipv6-throughput) |
-| Fans | Yes | Omarchy ISO `t2fanrd` + this toolbox linear **40–85 °C** |
+| Fans | Yes | Omarchy ISO `t2fanrd` + this toolbox linear **40–85 °C**, patched ramp (no jump on launch) |
 | Power / heat | Yes | this toolbox — AMD DPM **`low`** + `mbp16-1-powerd` |
 | Audio | Yes | Omarchy ISO (T2 audio). Raw mic is quiet: optional [mic DSP](docs/ab-tests-audio-wifi.md#1-microphone-dsp) |
 | Bluetooth | Yes | Omarchy ISO (Broadcom firmware) |
@@ -763,7 +763,14 @@ The Omarchy 4.5 installer writes the same file (`fix-brcmfmac-supplicant.sh`); `
 
 ### D3. apply fans
 
-`t2fanrd` Fan1 **and** Fan2, Intel package. Loud 30–60 s at boot until userspace. **Linear 40–85 °C** (not Omarchy stock 55–75). Do not exponential. Do not “fix” with DPM `auto` / `no_turbo` / unloading `t2bce`. Hunt: raise `low_temp` toward 46 then 48; never shrink `high_temp` to 75.
+`t2fanrd` Fan1 **and** Fan2, Intel package. Loud 30–60 s at boot until userspace. **Linear 40–85 °C** (not Omarchy stock 55–75). Do not exponential. Do not “fix” with DPM `auto` / `no_turbo` / unloading `t2bce`. Hunt: raise `low_temp` toward 46 then 48; never shrink `high_temp` to 75. Never lower the max: palm-rest and trackpad cooling rides on that airflow.
+
+Stock `t2fanrd` jumps the fans on every launch. After each idle second it back-fills its 5 s mean with ten copies of the new reading, so a compile moves the mean by a fifth of the step at once. `apply fans` builds the same upstream revision ([`48baf96`](https://github.com/GnomedDev/T2FanRD/tree/48baf962697ec3d4d969c74cf601ee8e15b7aeaa), as the Omarchy package) with [`files/t2fanrd/0001-mbp16-1-smooth-ramp-up.patch`](files/t2fanrd/0001-mbp16-1-smooth-ramp-up.patch):
+
+- it holds the previous reading for that second instead;
+- `ramp_up_s=5` spreads a rise from min to max over 5 s. Falls are immediate.
+
+Same curve, same min and max. It installs `/usr/local/sbin/t2fanrd-mbp161` and a unit drop-in; the pacman package is untouched. Stock `t2fanrd` ignores `ramp_up_s`. To revert, delete `/etc/systemd/system/t2fanrd.service.d/10-mbp16-1-ramp.conf`, then `sudo systemctl daemon-reload && sudo systemctl restart t2fanrd`.
 
 ```bash
 ./bin/mbp16-1 apply fans
@@ -776,12 +783,14 @@ low_temp=40
 high_temp=85
 speed_curve=linear
 always_full_speed=false
+ramp_up_s=5
 
 [Fan2]
 low_temp=40
 high_temp=85
 speed_curve=linear
 always_full_speed=false
+ramp_up_s=5
 ```
 
 ```bash
@@ -1126,7 +1135,8 @@ macOS remains SEP recovery. Reinstalling Omarchy means re-exporting keybags if `
 | `/etc/systemd/system/mbp16-1-lock-rearm.service` | `sleep.target` ExecStop — after thaw, not a frozen `system-sleep` hook |
 | `~/.local/bin/mbp16-1-limine-quiet` | Limine `timeout: 1`, `quiet: yes` |
 | `/etc/vconsole.conf` | `KEYMAP=mac-fr` (French only) |
-| `/etc/t2fand.conf` | linear 40–85 |
+| `/etc/t2fand.conf` | linear 40–85, `ramp_up_s=5` |
+| `/etc/systemd/system/t2fanrd.service.d/10-mbp16-1-ramp.conf` | run `/usr/local/sbin/t2fanrd-mbp161` (patched ramp, **built** by `apply fans`) |
 | `/etc/mbp16-1-powerd.conf` | Super envelopes |
 | `/etc/systemd/system/mbp16-1-powerd.service` | occupancy + skin RAPL/EPP |
 | `/etc/limine-entry-tool.d/t2-mac.conf` | IOMMU, **no** `deep` (overwrites the 4.5 `fix-t2.sh` one) |

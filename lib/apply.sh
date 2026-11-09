@@ -296,10 +296,12 @@ apply_fans() {
   ensure_core
   expect "Fans (t2fanrd)" \
     "Linear 40–85 °C on Fan1 and Fan2 (Intel package). Not Omarchy stock 55–75." \
+    "Patched t2fanrd: no jump on launch, min to max over 5 s. Same curve and max." \
     "Loud 30–60 s at boot until userspace is expected." \
     "Do not 'fix' with DPM auto, no_turbo, or unloading t2bce."
   install_root_file "$FILES/etc/t2fand.conf" /etc/t2fand.conf
   if systemctl list-unit-files t2fanrd.service >/dev/null 2>&1; then
+    apply_t2fanrd_ramp
     run as_root systemctl restart t2fanrd.service
   else
     warn "t2fanrd.service not installed (Omarchy T2 package usually provides it)"
@@ -307,6 +309,42 @@ apply_fans() {
       log "left t2fand.conf as written; start t2fanrd later"
     fi
   fi
+}
+
+# Omarchy's t2fanrd back-fills its mean with the first reading after each idle
+# second, 10 times, so fans jump on every launch. Build the same upstream
+# revision plus files/t2fanrd/*.patch and point the packaged unit at it with
+# a drop-in. The pacman package stays intact; deleting the drop-in reverts.
+apply_t2fanrd_ramp() {
+  local dir="$CACHE/t2fanrd"
+  local patch="$FILES/t2fanrd/0001-mbp16-1-smooth-ramp-up.patch"
+  local bin=/usr/local/sbin/t2fanrd-mbp161
+  local dropin=/etc/systemd/system/t2fanrd.service.d/10-mbp16-1-ramp.conf
+  [[ -f $patch ]] || die "missing $patch"
+  ensure_rust
+  if ((DRY_RUN)); then
+    log "dry-run: build t2fanrd ${T2FANRD_REV:0:7} + ramp patch" "$bin"
+    install_root_file "$FILES${dropin}" "$dropin"
+    return 0
+  fi
+  # Pinned: fetch only when the revision is missing (a pull on the detached
+  # checkout would fail anyway).
+  if [[ -d $dir/.git ]]; then
+    git -C "$dir" cat-file -e "${T2FANRD_REV}^{commit}" 2>/dev/null ||
+      git -C "$dir" fetch --quiet origin
+  else
+    clone_or_update "$T2FANRD_REPO" "$dir"
+  fi
+  # --force drops the previous run's patch before applying it again.
+  git -C "$dir" checkout --quiet --force "$T2FANRD_REV" ||
+    die "t2fanrd ${T2FANRD_REV:0:7} not in $T2FANRD_REPO" "Re-pin T2FANRD_REV and the patch together."
+  [[ $(git -C "$dir" rev-parse HEAD) == "$T2FANRD_REV" ]] || die "t2fanrd checkout is not ${T2FANRD_REV}"
+  git -C "$dir" apply "$patch" || die "ramp patch does not apply to t2fanrd ${T2FANRD_REV:0:7}"
+  (cd "$dir" && cargo build --release --locked)
+  run as_root install -D -m 0755 "$dir/target/release/t2fanrd" "$bin"
+  log "installed  $bin"
+  install_root_file "$FILES${dropin}" "$dropin"
+  run as_root systemctl daemon-reload
 }
 
 apply_wifi() {

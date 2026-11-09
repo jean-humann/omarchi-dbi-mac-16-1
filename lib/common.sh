@@ -45,6 +45,10 @@ PACK_NAME="${MBP16_1_PACK_NAME:-omarchi-dbi-mac-16-1}"
 RANDY_REPO="${MBP16_1_RANDY_REPO:-https://github.com/novuon/mbp2019-omarchy.git}"
 TOUCHID_REPO="${MBP16_1_TOUCHID_REPO:-https://github.com/jean-humann/t2-touchid-linux.git}"
 TOUCHID_BRANCH="${MBP16_1_TOUCHID_BRANCH:-mbp161-mixed-envelope}"
+T2FANRD_REPO="${MBP16_1_T2FANRD_REPO:-https://github.com/GnomedDev/T2FanRD.git}"
+# Same revision as Omarchy's t2fanrd r16.48baf96 package. The ramp patch in
+# files/t2fanrd/ is written against it; re-pin both together.
+T2FANRD_REV=48baf962697ec3d4d969c74cf601ee8e15b7aeaa
 
 DRY_RUN=0
 FORCE_MODEL=0

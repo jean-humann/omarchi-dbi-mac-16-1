@@ -1,0 +1,155 @@
+mbp16-1: smooth t2fanrd ramp-up (upstream GnomedDev/T2FanRD 48baf96, GPL-3.0-or-later)
+
+Same revision as Omarchy's t2fanrd r16.48baf96 package. Curve, min and max
+speeds unchanged.
+
+1. After each 1 s idle sleep, upstream back-fills the 50-slot mean with 10
+   copies of the NEW reading. A launch moves the mean by a fifth of the step
+   at once, so the fans jump, then reach max in ~3 s. Hold the PREVIOUS
+   reading for the slept second instead (window stays ~5 s).
+2. Optional per-fan `ramp_up_s` in /etc/t2fand.conf: a rise covers at most
+   the full min-to-max range in that many seconds. Falls are immediate (the
+   5 s mean already smooths them). Absent or 0 = upstream behaviour. Stock
+   t2fanrd ignores the key.
+
+Applied by `mbp16-1 apply fans` with `git apply` on a pinned checkout.
+
+diff --git i/src/config.rs w/src/config.rs
+index 62fae5e..45ef1a8 100644
+--- i/src/config.rs
++++ w/src/config.rs
+@@ -44,6 +44,8 @@ pub struct FanConfig {
+     pub high_temp: u8,
+     pub speed_curve: SpeedCurve,
+     pub always_full_speed: bool,
++    /// Optional: seconds for a full min-to-max rise. 0 or absent = no limit.
++    pub ramp_up_s: f32,
+ }
+ 
+ impl FanConfig {
+@@ -66,6 +68,7 @@ impl Default for FanConfig {
+             high_temp: 75,
+             speed_curve: SpeedCurve::Linear,
+             always_full_speed: false,
++            ramp_up_s: 0.0,
+         }
+     }
+ }
+@@ -86,6 +89,10 @@ impl TryFrom<&ini::Properties> for FanConfig {
+             high_temp: get_value(properties, "high_temp")?,
+             speed_curve: get_value(properties, "speed_curve")?,
+             always_full_speed: get_value(properties, "always_full_speed")?,
++            ramp_up_s: match properties.get("ramp_up_s") {
++                None => 0.0,
++                Some(_) => get_value::<f32>(properties, "ramp_up_s")?.max(0.0),
++            },
+         })
+     }
+ }
+diff --git i/src/fan_controller.rs w/src/fan_controller.rs
+index 7d2927c..89bb8b8 100644
+--- i/src/fan_controller.rs
++++ w/src/fan_controller.rs
+@@ -1,4 +1,5 @@
+ use std::{
++    cell::Cell,
+     io::{IsTerminal, Write},
+     path::PathBuf,
+ };
+@@ -16,6 +17,7 @@ pub struct FanController {
+ 
+     min_speed: u32,
+     max_speed: u32,
++    applied: Cell<Option<u32>>,
+ }
+ 
+ impl FanController {
+@@ -55,6 +57,7 @@ impl FanController {
+             config,
+             min_speed,
+             max_speed,
++            applied: Cell::new(None),
+         };
+ 
+         println!("Found fan: {this:#?}");
+@@ -86,6 +89,26 @@ impl FanController {
+         Ok(())
+     }
+ 
++    /// Move toward `target`. A rise covers at most the full min-to-max range
++    /// per `ramp_up_s` (`dt` seconds since the last step); a fall is applied
++    /// at once. Writes only on change. Returns true while still below target.
++    pub fn step_toward(&self, target: u32, dt: f32) -> Result<bool> {
++        let target = target.clamp(self.min_speed, self.max_speed);
++        let next = match self.applied.get() {
++            Some(cur) if target > cur && self.config.ramp_up_s > 0.0 => {
++                let range = (self.max_speed - self.min_speed) as f32;
++                let step = (range * dt / self.config.ramp_up_s).ceil().max(1.0) as u32;
++                cur.saturating_add(step).min(target)
++            }
++            _ => target,
++        };
++        if self.applied.get() != Some(next) {
++            self.set_speed(next)?;
++            self.applied.set(Some(next));
++        }
++        Ok(next < target)
++    }
++
+     pub fn calc_speed(&self, temp: u8) -> u32 {
+         if self.config.always_full_speed {
+             return self.max_speed;
+diff --git i/src/main.rs w/src/main.rs
+index 13b0afa..76855e8 100644
+--- i/src/main.rs
++++ w/src/main.rs
+@@ -148,8 +148,11 @@ fn start_temp_loop(
+     signal_hook::flag::register(SIGTERM, cancellation_token.clone()).map_err(Error::Signal)?;
+ 
+     let mut last_temp = 0;
++    let mut prev_temp: Option<u8> = None;
+     let mut temps = ArrayDeque::<u8, 50, arraydeque::Wrapping>::new();
+     let mut was_long_sleep = false;
++    let mut ramping = false;
++    let mut last_step = std::time::Instant::now();
+     while !cancellation_token.load(std::sync::atomic::Ordering::Relaxed) {
+         let cpu_temp = read_temp_file(&mut cpu_temp_file, &mut temp_buffer)?;
+         let temp = if let Some(gpu_temp_file) = &mut gpu_temp_file {
+@@ -163,23 +166,32 @@ fn start_temp_loop(
+             cpu_temp
+         };
+ 
+-        temps.push_back(temp);
+         if was_long_sleep {
+-            // Avoid messing up the mean due to the longer sleep.
++            // Keep the window ~5 s across the 1 s sleep. Hold the previous
++            // reading for the slept second: back-filling the new one moved
++            // the mean by 20 % of a step at once, so fans jumped on launch.
++            let held = prev_temp.unwrap_or(temp);
+             for _ in 0..9 {
+-                temps.push_back(temp);
++                temps.push_back(held);
+             }
+         }
++        temps.push_back(temp);
++        prev_temp = Some(temp);
+ 
+         let sum_temp: u16 = temps.iter().map(|t| *t as u16).sum();
+         let mean_temp = sum_temp / (temps.len() as u16);
+-        if mean_temp == last_temp {
++        let now = std::time::Instant::now();
++        // Cap dt so the first step after a 1 s sleep stays small.
++        let dt = now.duration_since(last_step).as_secs_f32().min(0.2);
++        last_step = now;
++        if mean_temp == last_temp && !ramping {
+             std::thread::sleep(std::time::Duration::from_secs(1));
+             was_long_sleep = true;
+         } else {
+             last_temp = mean_temp;
++            ramping = false;
+             for fan in fans {
+-                fan.set_speed(fan.calc_speed(mean_temp as u8))?;
++                ramping |= fan.step_toward(fan.calc_speed(mean_temp as u8), dt)?;
+             }
+ 
+             std::thread::sleep(std::time::Duration::from_millis(100));

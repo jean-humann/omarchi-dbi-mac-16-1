@@ -408,13 +408,26 @@ mbp16_1_doctor() {
   fi
 
   subsection "Fans:"
-  local fans=0 linear=0 temps=0 running=0
+  local fans=0 linear=0 temps=0 running=0 ramp=0
   grep -q '\[Fan1\]' /etc/t2fand.conf 2>/dev/null && grep -q '\[Fan2\]' /etc/t2fand.conf 2>/dev/null && fans=1
   grep -q 'speed_curve=linear' /etc/t2fand.conf 2>/dev/null && linear=1
   grep -q 'low_temp=40' /etc/t2fand.conf 2>/dev/null && grep -q 'high_temp=85' /etc/t2fand.conf 2>/dev/null && temps=1
   systemctl is-active t2fanrd.service >/dev/null 2>&1 && running=1
+  [[ $(systemctl show -p ExecStart --value t2fanrd.service 2>/dev/null) == *t2fanrd-mbp161* ]] &&
+    grep -q '^ramp_up_s=5' /etc/t2fand.conf 2>/dev/null && ramp=1
   if ((fans && linear && temps && running)); then
-    ok "t2fanrd  ·  linear 40–85 °C  ·  Fan1+Fan2"
+    if ((ramp)); then
+      ok "t2fanrd-mbp161  ·  linear 40–85 °C  ·  ramp 5 s  ·  Fan1+Fan2"
+    else
+      ok "t2fanrd  ·  linear 40–85 °C  ·  Fan1+Fan2"
+      info "stock t2fanrd: fans jump on every launch" "mbp16-1 apply fans"
+    fi
+    local fanpkg
+    fanpkg=$(pacman_q_ver t2fanrd)
+    if ((ramp)) && [[ -n $fanpkg && $fanpkg != *"${T2FANRD_REV:0:7}"* ]]; then
+      info "t2fanrd package is ${fanpkg}; patched build pins ${T2FANRD_REV:0:7}" \
+        "Check upstream, then re-pin T2FANRD_REV and files/t2fanrd/ together."
+    fi
   else
     ((running)) || _doc_fail "t2fanrd not running" "mbp16-1 apply fans" "mbp16-1 apply fans"
     ((fans)) || _doc_fail "t2fand.conf missing Fan1/Fan2" "mbp16-1 apply fans" "mbp16-1 apply fans"

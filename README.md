@@ -460,12 +460,13 @@ systemctl reboot
 The first 4 bytes are the attributes (NV + boot + runtime); the last 4 are the value. After the reboot:
 
 ```bash
-cat /sys/bus/pci/devices/0000:00:02.0/boot_vga     # 1 = the firmware started on Intel
-sudo sh -c 'grep -hE "lane_count|bpp=" /sys/kernel/debug/dri/*/i915_display_info' | sort -u
+sudo grep -hE "lane_count|bpp=" /sys/kernel/debug/dri/0000:00:02.0/i915_display_info
 # before:  dither=yes, bpp=18   lane_count=2
 # goal:    dither=no,  bpp≥24   lane_count=4
-./bin/mbp16-1 doctor                               # GPU → Boot GPU line
+sudo -v && ./bin/mbp16-1 doctor                   # GPU → Boot GPU line (sudo -n reads the link)
 ```
+
+Do not read `boot_vga` for this test: `force_igd` makes Intel the VGA default when it moves the mux, so `boot_vga` is 1 even when the firmware started on AMD.
 
 - **macOS rewrites the variable on each of its boots**, so after you boot macOS the test is undone and you rerun it. Persisting it is KaiT2en's `t2-gpu-preboot` UEFI app (it chainloads Fedora's shim; a Limine build is not part of this toolbox yet).
 - Black lid or no improvement: boot macOS once (that resets it), or write `\x00` in place of `\x01` as the fifth byte.

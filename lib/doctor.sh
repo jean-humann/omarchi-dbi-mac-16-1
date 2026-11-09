@@ -68,21 +68,45 @@ _doc_titan_ridge_control() {
   return 1
 }
 
+# The eDP link i915 drives now, as "lanes bpp dither". Needs root (debugfs).
+_doc_edp_link() {
+  local info
+  info=$(_doc_root cat "/sys/kernel/debug/dri/${INTEL_PCI}/i915_display_info" || true)
+  [[ -n $info ]] || return 1
+  awk '
+    /dither=/ {
+      d = $0; sub(/.*dither=/, "", d); sub(/,.*/, "", d)
+      b = $0; sub(/.*bpp=/, "", b); sub(/[^0-9].*/, "", b)
+    }
+    /lane_count=/ { l = $0; sub(/.*lane_count=/, "", l); sub(/[^0-9].*/, "", l) }
+    /\[CONNECTOR:[0-9]+:eDP-/ { if (l > 0) { print l, b, d; found = 1 }; exit }
+    END { exit !found }
+  ' <<<"$info"
+}
+
 _doc_boot_gpu() {
-  local prefs boot_vga preboot
+  local prefs preboot link lanes bpp dither
   prefs=$(_doc_efivar_byte "$DOC_GPU_PREFS" || true)
-  boot_vga=$(read_sys "/sys/bus/pci/devices/${INTEL_PCI}/boot_vga")
   preboot=$(_doc_efivar_byte "$DOC_PREBOOT_VAR" || true)
   subsection "Boot GPU (read-only):"
-  if [[ $boot_vga == 1 ]]; then
-    ok "firmware started on Intel  ·  gpu-power-prefs=${prefs:-unset}" \
-      "the iGPU trained the eDP link itself; force_igd had nothing to switch"
-  elif [[ -n $boot_vga ]]; then
-    info "firmware started on AMD  ·  gpu-power-prefs=${prefs:-unset}" \
-      "force_igd moves the lid later: eDP 2 lanes, 18 bpp dithered. README C2 → gpu-power-prefs test"
-    if [[ $prefs == 1 ]]; then
-      hint "gpu-power-prefs is already 1: the firmware reads it at the next boot"
+  # Not boot_vga: force_igd makes Intel the VGA default when it moves the mux,
+  # so boot_vga reads 1 even when the firmware started on AMD. The eDP link
+  # i915 trained tells them apart: 4 lanes when it started on Intel.
+  if link=$(_doc_edp_link); then
+    read -r lanes bpp dither <<<"$link"
+    if ((lanes >= 4)); then
+      ok "eDP ${lanes} lanes  ·  ${bpp} bpp  ·  dither ${dither}  ·  gpu-power-prefs=${prefs:-unset}" \
+        "the firmware started on Intel and i915 trained the link itself"
+    else
+      info "eDP ${lanes} lanes  ·  ${bpp} bpp  ·  dither ${dither}  ·  gpu-power-prefs=${prefs:-unset}" \
+        "the firmware started on AMD and force_igd moved the lid. README C2b → gpu-power-prefs test"
+      if [[ $prefs == 1 ]]; then
+        hint "gpu-power-prefs is already 1: the firmware reads it at the next boot"
+      fi
     fi
+  else
+    info "gpu-power-prefs=${prefs:-unset}  ·  eDP link not read" \
+      "lanes and bpp need root: sudo -v, then rerun doctor"
   fi
   if [[ -n $preboot ]]; then
     info "t2-gpu-preboot mode byte ${preboot}" "1 = restore Intel after macOS. Not installed by this toolbox"

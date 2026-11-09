@@ -351,7 +351,9 @@ mbp16_1_doctor() {
   local powerd=0 conf=0 ac=0 turbo=0
   systemctl is-active mbp16-1-powerd.service >/dev/null 2>&1 && powerd=1
   [[ -f /etc/mbp16-1-powerd.conf ]] && conf=1
-  [[ $(tr -d '\n' <"$HOME/.local/state/omarchy/powerprofiles/ac" 2>/dev/null) == balanced ]] && ac=1
+  # 2>/dev/null first: bash applies redirections left to right, so a missing
+  # state file would otherwise print an error before stderr is silenced.
+  [[ $(tr -d '\n' 2>/dev/null <"$HOME/.local/state/omarchy/powerprofiles/ac") == balanced ]] && ac=1
   no_turbo=$(read_sys /sys/devices/system/cpu/intel_pstate/no_turbo)
   [[ $no_turbo == 0 ]] && turbo=1
   if [[ $no_turbo == 1 ]]; then

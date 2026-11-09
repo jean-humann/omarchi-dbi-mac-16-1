@@ -228,6 +228,21 @@ _macos_diskutil_val() {
   '
 }
 
+# Prints Internal or External, or nothing if diskutil says neither.
+# macOS 14 prints "Device Location: Internal|External" and no "Internal:" line.
+# Older releases printed "Internal: Yes|No"; keep that as the fallback.
+_macos_disk_location() {
+  local v
+  v=$(_macos_diskutil_val "$1" "Device Location")
+  case $v in
+    Internal|External) printf '%s\n' "$v"; return 0 ;;
+  esac
+  case $(_macos_diskutil_val "$1" Internal) in
+    Yes) printf 'Internal\n' ;;
+    No) printf 'External\n' ;;
+  esac
+}
+
 _macos_disk_bytes() {
   local line
   line=$(_macos_diskutil_val "$1" "Disk Size")
@@ -253,7 +268,7 @@ _macos_sha256() {
 }
 
 _macos_collect_usb() {
-  local id proto internal
+  local id proto location
   MACOS_USB_DISKS=()
   while IFS= read -r id; do
     [[ $id == disk[0-9]* ]] || continue
@@ -262,9 +277,9 @@ _macos_collect_usb() {
       *) continue ;;
     esac
     [[ $id != disk0 ]] || continue
-    internal=$(_macos_diskutil_val "$id" Internal)
+    location=$(_macos_disk_location "$id")
     proto=$(_macos_diskutil_val "$id" Protocol)
-    [[ $internal == No ]] || continue
+    [[ $location == External ]] || continue
     [[ $proto == USB ]] || continue
     MACOS_USB_DISKS+=("$id")
   done < <(diskutil list external physical 2>/dev/null | awk '
@@ -395,12 +410,12 @@ _macos_existing_free_bytes() {
 }
 
 _macos_find_apfs_stores() {
-  local id proto internal
+  local id proto location
   while IFS= read -r id; do
     [[ -n $id ]] || continue
-    internal=$(_macos_diskutil_val "$id" Internal)
+    location=$(_macos_disk_location "$id")
     proto=$(_macos_diskutil_val "$id" Protocol)
-    [[ $internal == Yes ]] || continue
+    [[ $location == Internal ]] || continue
     [[ $proto != USB ]] || continue
     printf '%s\n' "$id"
   done < <(diskutil list internal physical 2>/dev/null | awk '
@@ -458,11 +473,11 @@ _macos_assert_installer_size() {
 
 _macos_assert_usb() {
   local disk=$1
-  local internal proto
+  local location proto
   [[ $disk != disk0 ]] || die "refusing disk0" "that is the internal SSD"
-  internal=$(_macos_diskutil_val "$disk" Internal)
+  location=$(_macos_disk_location "$disk")
   proto=$(_macos_diskutil_val "$disk" Protocol)
-  [[ $internal == No ]] || die "$disk is internal" "refusing to write the ISO or keybags there"
+  [[ $location == External ]] || die "$disk is not external (${location:-location unknown})" "refusing to write the ISO or keybags there"
   [[ $proto == USB ]] || die "$disk protocol is ${proto:-unknown}" "want a USB whole disk"
 }
 
@@ -974,7 +989,7 @@ macos_map_apfs() {
     MACOS_CONTAINER=$(_macos_norm_store "$(ask_line "APFS container to shrink (internal store, usually disk0s2)" "$default")")
   fi
 
-  _macos_diskutil_val "$MACOS_CONTAINER" Internal | grep -qx Yes || \
+  [[ $(_macos_disk_location "$MACOS_CONTAINER") == Internal ]] || \
     die "$MACOS_CONTAINER is not internal" "refusing to shrink a USB or external disk"
   _macos_diskutil_val "$MACOS_CONTAINER" Protocol | grep -qi USB && \
     die "$MACOS_CONTAINER is USB" "that would be a stick, not the Mac SSD"
